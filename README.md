@@ -1,7 +1,7 @@
 # Infundibulum Echoes - Resonant Artifacts
 
 <p align="center">
-  <img src="https://i.imgur.com/7gZ9e3h.jpeg" alt="Infundibulum Echoes Screenshot" width="700"/>
+  <img src="https://github.com/neuroidss/Infundibulum-Echoes-Resonant-Artifacts/blob/main/Screenshot%20from%202025-08-03%2001-43-11.png?raw=true" alt="Infundibulum Echoes Screenshot" width="700"/>
 </p>
 
 **A portal to a different reality. This is not a music app; it's an instrument for 'vibecoding'—collaborating with an AI to generate audio-visual experiences that defy the laws of our universe.**
