@@ -1,0 +1,9 @@
+{
+  "name": "Infundibulum Echoes React improvement",
+  "description": "A generative audio-visual experience powered by a Hierarchical Neural Memory system, ported to a modern React architecture. Interact with the system through touch, motion, and voice to create and recall resonant 'artifacts' that shape the evolving soundscape and visuals.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "prompt": ""
+}
