@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 // This is a direct port of the provided hnm_core_v1.js.
 // It relies on a global `tf` object from the TensorFlow.js CDN script.
@@ -146,9 +145,6 @@ export class NMM_TD_V5_TFJS {
             verbose: config.nmm_params?.verbose || false,
             ...(config.nmm_params || {})
         };
-        if (this.nmmParams.learning_rate === 0) {
-            if (this.nmmParams.verbose) hnmLog(`NMM_TD_V5_TFJS (${this.levelName}): LR is 0, training ops will be skipped.`);
-        }
 
         this.memoryModel = new MemoryMLP_TFJS(this.dim, this.nmmParams.mem_model_depth, this.nmmParams.mem_model_expansion, `${this.levelName}_mem_mlp`);
         this.toValueTarget = new MemoryMLP_TFJS(this.dim, 1, this.dim, `${this.levelName}_val_proj`);
@@ -164,13 +160,28 @@ export class NMM_TD_V5_TFJS {
         }
 
         this.lossFn = (labels, predictions) => tf.losses.meanSquaredError(labels, predictions);
-        if (this.nmmParams.learning_rate > 0) {
-            this.optimizer = tf.train.adam(this.nmmParams.learning_rate, this.nmmParams.beta1, this.nmmParams.beta2, 1e-7);
-        } else {
-            this.optimizer = null;
-        }
+        this.optimizer = null;
+        this.updateLearningParams(this.nmmParams.learning_rate, this.nmmParams.weight_decay);
+        
         if (this.nmmParams.verbose) hnmLog(`NMM_TD_V5_TFJS (${this.levelName}): Dim=${this.dim}, ExtDim=${this.nmmParams.external_signal_dim}, Role=${this.nmmParams.external_signal_role}, LR=${this.nmmParams.learning_rate.toExponential(2)}`);
         this.isDisposed = false;
+    }
+
+    updateLearningParams(lr, wd) {
+        this.nmmParams.learning_rate = lr;
+        this.nmmParams.weight_decay = wd;
+        
+        if (this.optimizer && typeof this.optimizer.dispose === 'function') {
+            this.optimizer.dispose();
+        }
+        this.optimizer = null;
+
+        if (this.nmmParams.learning_rate > 0) {
+            this.optimizer = tf.train.adam(this.nmmParams.learning_rate, this.nmmParams.beta1, this.nmmParams.beta2, 1e-7);
+            if (this.nmmParams.verbose) hnmLog(`NMM_TD_V5_TFJS (${this.levelName}): Optimizer re-created with LR=${this.nmmParams.learning_rate.toExponential(2)}`);
+        } else {
+            if (this.nmmParams.verbose) hnmLog(`NMM_TD_V5_TFJS (${this.levelName}): Optimizer disabled as LR is 0.`);
+        }
     }
 
     _getLayerWeights() {
@@ -477,6 +488,16 @@ export class HierarchicalSystemV5_TFJS {
         });
         this.numLevels = this.levels.length;
         hnmLog(`HS_V5_TFJS: Initialization complete. ${this.levels.length} levels created.`);
+    }
+
+    setLearningParameters(learningRate, weightDecay) {
+        if (this.isDisposed) return;
+        hnmLog(`HS_V5_TFJS: Updating learning parameters. LR=${learningRate}, WD=${weightDecay}`);
+        this.levels.forEach(level => {
+            if (level && typeof level.updateLearningParams === 'function') {
+                level.updateLearningParams(learningRate, weightDecay);
+            }
+        });
     }
 
     getInitialStates() {

@@ -1,7 +1,6 @@
-
 import { MenuSettings, HnmLevelConfig } from './types';
 
-export const VERSION = "0.7.0-GenreAdaptMode";
+export const VERSION = "0.8.0-HrmLearning";
 export const USE_DEBUG = true;
 export const TARGET_FPS = 55;
 export const STATE_VECTOR_SIZE = 64;
@@ -37,8 +36,8 @@ export const HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM = STATE_VECTOR_SIZE;
 export const HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM = STATE_VECTOR_SIZE;
 
 export const HNM_HIERARCHY_LEVEL_CONFIGS: HnmLevelConfig[] = [
-    { name: "L0_IntentProcessing", dim: 96, raw_sensory_input_dim: STATE_VECTOR_SIZE, bu_source_level_names: [], td_source_level_names: ["L1_ContextualResonance"], external_input_config: { source_signal_name: "ArtifactSignalSource", dim: HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM }, nmm_params: { mem_model_depth: 2, mem_model_expansion: 1.5, learning_rate: 0.000, weight_decay: 0.000, external_signal_dim: HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM, external_signal_role: "add_to_bu", verbose: HNM_VERBOSE } },
-    { name: "L1_ContextualResonance", dim: STATE_VECTOR_SIZE, bu_source_level_names: ["L0_IntentProcessing"], td_source_level_names: [], external_input_config: { source_signal_name: "ActiveGenreRuleSignal", dim: HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM }, nmm_params: { mem_model_depth: 2, mem_model_expansion: 2.0, learning_rate: 0.000, weight_decay: 0.000, external_signal_dim: HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM, external_signal_role: "add_to_target", verbose: HNM_VERBOSE } }
+    { name: "L0_IntentProcessing", dim: 96, raw_sensory_input_dim: STATE_VECTOR_SIZE, bu_source_level_names: [], td_source_level_names: ["L1_ContextualResonance"], external_input_config: { source_signal_name: "ArtifactSignalSource", dim: HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM }, nmm_params: { mem_model_depth: 2, mem_model_expansion: 1.5, external_signal_dim: HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM, external_signal_role: "add_to_bu", verbose: HNM_VERBOSE } },
+    { name: "L1_ContextualResonance", dim: STATE_VECTOR_SIZE, bu_source_level_names: ["L0_IntentProcessing"], td_source_level_names: [], external_input_config: { source_signal_name: "ActiveGenreRuleSignal", dim: HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM }, nmm_params: { mem_model_depth: 2, mem_model_expansion: 2.0, external_signal_dim: HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM, external_signal_role: "add_to_target", verbose: HNM_VERBOSE } }
 ];
 
 export const HNM_POLICY_HEAD_INPUT_LEVEL_NAME = "L1_ContextualResonance";
@@ -116,6 +115,9 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     enableSpeechCommands: true,
     enableTapReset: true,
     enableGenreAdaptMode: false,
+    enableHnmTrainingMode: false,
+    hnmLearningRate: 0.00001,
+    hnmWeightDecay: 0.0001,
 };
 
 export const GENRE_EDIT_SLIDER_COUNT = 16;

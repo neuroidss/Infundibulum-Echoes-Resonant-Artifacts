@@ -1,4 +1,3 @@
-
 export interface MenuSettings {
     playerInfluence: number;
     genreRuleInfluence: number;
@@ -61,6 +60,9 @@ export interface MenuSettings {
     enableSpeechCommands: boolean;
     enableTapReset: boolean;
     enableGenreAdaptMode: boolean;
+    enableHnmTrainingMode: boolean;
+    hnmLearningRate: number;
+    hnmWeightDecay: number;
 }
 
 export interface GenreEditState {

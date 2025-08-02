@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import GUI from 'lil-gui';
 import { MenuSettings, GenreEditState } from '../types';
@@ -13,6 +12,7 @@ interface GuiControllerProps {
     onGenreEditChange: (key: string, value: any) => void;
     loadSelectedGenreToSliders: () => void;
     saveSlidersToSelectedGenre: () => void;
+    isDisabled: boolean;
 }
 
 const GuiController: React.FC<GuiControllerProps> = ({
@@ -24,8 +24,10 @@ const GuiController: React.FC<GuiControllerProps> = ({
     onGenreEditChange,
     loadSelectedGenreToSliders,
     saveSlidersToSelectedGenre,
+    isDisabled,
 }) => {
     const guiRef = useRef<GUI | null>(null);
+    const controlsRef = useRef<any>({});
     const propsRef = useRef({ onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre });
     propsRef.current = { onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre };
 
@@ -44,10 +46,15 @@ const GuiController: React.FC<GuiControllerProps> = ({
         const systemFolder = gui.addFolder('System & State');
         systemFolder.add(menuSettings, 'enableSpeechCommands').name('Enable Speech').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableSpeechCommands', value));
         systemFolder.add(menuSettings, 'enableTapReset').name('Enable Tap Reset').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableTapReset', value));
-        systemFolder.add(menuSettings, 'enableGenreAdaptMode').name('Genre-Adapt Mode').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableGenreAdaptMode', value));
+        controlsRef.current.genreAdaptToggle = systemFolder.add(menuSettings, 'enableGenreAdaptMode').name('Genre-Adapt Mode').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableGenreAdaptMode', value));
         systemFolder.add({ reset: () => propsRef.current.resetMenuToDefaults() }, 'reset').name('Reset Menu Defaults');
         systemFolder.add({ reset: () => propsRef.current.resetHnmRag() }, 'reset').name('Reset HNM/RAG State');
-
+        
+        const trainingFolder = gui.addFolder('HNM Training (Experimental)');
+        controlsRef.current.trainingToggle = trainingFolder.add(menuSettings, 'enableHnmTrainingMode').name('Enable HNM Training').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableHnmTrainingMode', value));
+        controlsRef.current.lrController = trainingFolder.add(menuSettings, 'hnmLearningRate', 0, 0.0001, 0.000001).name('Learning Rate').onChange((v:number) => propsRef.current.onMenuSettingChange('hnmLearningRate', v));
+        controlsRef.current.wdController = trainingFolder.add(menuSettings, 'hnmWeightDecay', 0, 0.001, 0.00001).name('Weight Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('hnmWeightDecay', v));
+        
         const hnmInfluenceFolder = gui.addFolder('HNM & Player Influence');
         hnmInfluenceFolder.add(menuSettings, 'playerInfluence', 0, 1, 0.01).name('Player Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('playerInfluence', v));
         hnmInfluenceFolder.add(menuSettings, 'genreRuleInfluence', 0, 1, 0.01).name('Genre Rule Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('genreRuleInfluence', v));
@@ -55,8 +62,8 @@ const GuiController: React.FC<GuiControllerProps> = ({
         hnmInfluenceFolder.add(menuSettings, 'explorationInfluence', 0, 1, 0.01).name('HNM Anomaly Explor.').onChange((v:number) => propsRef.current.onMenuSettingChange('explorationInfluence', v));
 
         const genreSelectFolder = gui.addFolder('Genre Selection');
-        genreSelectFolder.add(menuSettings, 'psySpectrumPosition', 0, 1, 0.01).name('Psy Spectrum').onChange((v:number) => propsRef.current.onMenuSettingChange('psySpectrumPosition', v));
-        genreSelectFolder.add(menuSettings, 'darknessModifier', 0, 1, 0.01).name('Darkness Modifier').onChange((v:number) => propsRef.current.onMenuSettingChange('darknessModifier', v));
+        controlsRef.current.psyController = genreSelectFolder.add(menuSettings, 'psySpectrumPosition', 0, 1, 0.01).name('Psy Spectrum').onChange((v:number) => propsRef.current.onMenuSettingChange('psySpectrumPosition', v));
+        controlsRef.current.darkController = genreSelectFolder.add(menuSettings, 'darknessModifier', 0, 1, 0.01).name('Darkness Modifier').onChange((v:number) => propsRef.current.onMenuSettingChange('darknessModifier', v));
         genreSelectFolder.add(menuSettings, 'masterBPM', 60, 220, 1).name('Master BPM').onChange((v:number) => propsRef.current.onMenuSettingChange('masterBPM', v));
 
         const kickFolder = gui.addFolder('Kick Drum');
@@ -146,21 +153,27 @@ const GuiController: React.FC<GuiControllerProps> = ({
     useEffect(() => {
         if (!guiRef.current) return;
         
-        const psyController = guiRef.current.controllersRecursive().find(c => c.property === 'psySpectrumPosition');
-        const darkController = guiRef.current.controllersRecursive().find(c => c.property === 'darknessModifier');
+        const setControllerDisabled = (controller: any, isDisabled: boolean) => {
+            if (controller) {
+                controller.domElement.style.pointerEvents = isDisabled ? 'none' : 'auto';
+                (controller.domElement.parentElement as HTMLElement).style.opacity = isDisabled ? '0.5' : '1';
+            }
+        };
 
-        const isDisabled = menuSettings.enableGenreAdaptMode;
+        // Disable genre adapt sliders when mode is on
+        const isGenreAdaptActive = menuSettings.enableGenreAdaptMode;
+        setControllerDisabled(controlsRef.current.psyController, isGenreAdaptActive);
+        setControllerDisabled(controlsRef.current.darkController, isGenreAdaptActive);
 
-        if (psyController) {
-            psyController.domElement.style.pointerEvents = isDisabled ? 'none' : 'auto';
-            (psyController.domElement.parentElement as HTMLElement).style.opacity = isDisabled ? '0.5' : '1';
-        }
-        if (darkController) {
-            darkController.domElement.style.pointerEvents = isDisabled ? 'none' : 'auto';
-            (darkController.domElement.parentElement as HTMLElement).style.opacity = isDisabled ? '0.5' : '1';
-        }
+        // Disable AI-dependent features if API key is missing
+        setControllerDisabled(controlsRef.current.genreAdaptToggle, isDisabled);
 
-    }, [menuSettings.enableGenreAdaptMode]);
+        // Disable HNM training sliders when mode is off
+        const isTrainingActive = menuSettings.enableHnmTrainingMode;
+        setControllerDisabled(controlsRef.current.lrController, !isTrainingActive);
+        setControllerDisabled(controlsRef.current.wdController, !isTrainingActive);
+        
+    }, [menuSettings.enableGenreAdaptMode, menuSettings.enableHnmTrainingMode, isDisabled]);
 
     // Update GUI when state props change from outside
     useEffect(() => {

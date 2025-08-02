@@ -1,6 +1,6 @@
 {
-  "name": "Infundibulum Echoes React improvement",
-  "description": "A generative audio-visual experience powered by a Hierarchical Neural Memory system, ported to a modern React architecture. Interact with the system through touch, motion, and voice to create and recall resonant 'artifacts' that shape the evolving soundscape and visuals.",
+  "name": "Infundibulum Echoes - Resonant Artifacts",
+  "description": "Step through the Infundibulum, a portal to a different reality. This is not a music app; it's an instrument for 'vibecoding'—collaborating with an AI to generate audio-visual experiences that defy the laws of our universe. Your touch, motion, and voice summon alien soundscapes and impossible visuals. Capture these fleeting moments as 'Resonant Artifacts'—memories of a world that shouldn't exist, but does. Welcome to a place of maximum creativity, where nothing is familiar.",
   "requestFramePermissions": [
     "camera",
     "microphone"

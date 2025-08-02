@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import * as THREE from 'three';
 import { pipeline, env as xenovaEnv } from '@xenova/transformers';
@@ -110,6 +109,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const [loadingInfo, setLoadingInfo] = useState<{ message: string; progress: string; visible: boolean }>({ message: '', progress: '', visible: false });
     const [speechStatus, setSpeechStatus] = useState('Idle');
     const [isInitialized, setIsInitialized] = useState(false);
+    
+    // API Key State
+    const [apiKey, setApiKey] = useState<string | null>(null);
+    const [isAiDisabled, setIsAiDisabled] = useState(true);
+    const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
 
     // Menu/Settings State
     const [menuSettings, setMenuSettings] = useState<MenuSettings>({ ...DEFAULT_MENU_SETTINGS });
@@ -165,6 +169,31 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     useEffect(() => {
         menuSettingsRef.current = menuSettings;
     }, [menuSettings]);
+
+    // --- API Key Management ---
+    useEffect(() => {
+        const envKey = (typeof process !== 'undefined' && process.env) ? process.env.GEMINI_API_KEY : null;
+        const sessionKey = sessionStorage.getItem('gemini_api_key');
+        
+        if (envKey) {
+            setApiKey(envKey);
+        } else if (sessionKey) {
+            setApiKey(sessionKey);
+        } else {
+            setIsApiKeyModalOpen(true);
+        }
+    }, []);
+
+    useEffect(() => {
+        setIsAiDisabled(!apiKey);
+    }, [apiKey]);
+    
+    const handleApiKeySubmit = useCallback((key: string) => {
+        sessionStorage.setItem('gemini_api_key', key);
+        setApiKey(key);
+        setIsApiKeyModalOpen(false);
+        showWarning("API Key set for this session.", 3000);
+    }, []);
 
     // UI Callbacks
     const showWarning = useCallback((message: string, duration: number = 5000) => {
@@ -229,10 +258,14 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             
             if (key === 'enableGenreAdaptMode') {
                 if (value) {
+                    if (!apiKey) {
+                        showWarning("Genre-Adapt requires an API key.", 4000);
+                        return { ...newState, enableGenreAdaptMode: false }; 
+                    }
                     if (genreAdaptIntervalRef.current) clearInterval(genreAdaptIntervalRef.current);
                     
                     const adaptFn = async () => {
-                        if (isAdaptingRef.current || !appState.artifactManager || !appState.inputState) return;
+                        if (isAdaptingRef.current || !appState.artifactManager || !appState.inputState || !apiKey) return;
 
                         isAdaptingRef.current = true;
                         try {
@@ -246,7 +279,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                                 currentBpm: menuSettingsRef.current.masterBPM
                             };
 
-                            const result = await getGenreAdaptation(context);
+                            const result = await getGenreAdaptation(context, apiKey);
                             if (result) {
                                 genreAdaptTargetRef.current = result;
                             }
@@ -269,16 +302,21 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             }
             return newState;
         });
-    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning]);
+    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, apiKey]);
 
     const handleAiGenerate = useCallback(async (prompt: string) => {
+        if (!apiKey) {
+            showWarning("AI Muse requires an API key.", 4000);
+            setIsApiKeyModalOpen(true);
+            return;
+        }
         if (!prompt) {
             showWarning("Please enter a description for the AI Muse.", 3000);
             return;
         }
         showLoading(true, "AI Muse is thinking...", "Generating soundscape...");
         try {
-            const newSettings = await generateMusicSettings(prompt);
+            const newSettings = await generateMusicSettings(prompt, apiKey);
             setMenuSettings(newSettings);
             showWarning("AI Muse has created a new soundscape!", 4000);
         } catch (error) {
@@ -287,7 +325,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         } finally {
             showLoading(false);
         }
-    }, [showLoading, showError, showWarning]);
+    }, [showLoading, showError, showWarning, apiKey]);
 
     useEffect(() => {
         updateCurrentGenreRuleVector();
@@ -344,6 +382,17 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         setTimeout(() => window.location.reload(), 500);
     }, [showWarning, appState]);
     
+    // HNM Training Mode Effect
+    useEffect(() => {
+        if (!appState.hnmSystem) return;
+
+        const effectiveLR = menuSettings.enableHnmTrainingMode ? menuSettings.hnmLearningRate : 0;
+        const effectiveWD = menuSettings.enableHnmTrainingMode ? menuSettings.hnmWeightDecay : 0;
+        
+        appState.hnmSystem.setLearningParameters(effectiveLR, effectiveWD);
+
+    }, [menuSettings.enableHnmTrainingMode, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, appState.hnmSystem]);
+
     // Main initialization and game loop effect
     useEffect(() => {
         let isMounted = true;
@@ -781,7 +830,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
                 appState.currentResonantState = hnmStepPackage.newResonantState;
                 appState.hnmMemoryStates = hnmStepPackage.nextHnmStates;
-                appState.hnmLastStepOutputs = hnmStepPackage.nextHnmOutputs;
+                appState.hnmLastStepOutputs = hnmStepPackage.newlyRetrievedValues;
 
             } catch(e) { console.error("Game loop TF/HNM error", e); }
 
@@ -866,7 +915,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             
             appState.inputProcessor = new PlaceholderInputProcessor(INPUT_VECTOR_SIZE, STATE_VECTOR_SIZE);
             appState.featureExtractor = new FeatureExtractor(STATE_VECTOR_SIZE);
-            appState.artifactManager = new ArtifactManager(MAX_ARTIFACTS, EMBEDDING_DIM, EMBEDDING_DIM, appState.featureExtractor, appState.embeddingPipeline);
+            appState.artifactManager = new ArtifactManager(MAX_ARTIFACTS, STATE_VECTOR_SIZE, EMBEDDING_DIM, appState.featureExtractor, appState.embeddingPipeline);
             appState.hnmSystem = new HierarchicalSystemV5_TFJS(HNM_HIERARCHY_LEVEL_CONFIGS, { HNM_VERBOSE });
             appState.currentResonantState = tf.keep(tf.fill([1, 1, STATE_VECTOR_SIZE], 0.5));
             appState.hnmMemoryStates = appState.hnmSystem.getInitialStates();
@@ -929,6 +978,9 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         loadingInfo,
         speechStatus,
         isInitialized,
+        isAiDisabled,
+        isApiKeyModalOpen,
+        handleApiKeySubmit,
         menuSettings,
         handleMenuSettingChange,
         resetMenuSettingsToDefault,

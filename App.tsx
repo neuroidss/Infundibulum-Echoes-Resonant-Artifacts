@@ -1,9 +1,9 @@
-
 import React, { useRef } from 'react';
 import { useInfundibulum } from './hooks/useInfundibulum';
 import UIOverlay from './components/UIOverlay';
 import GuiController from './components/GuiController';
 import AiMuse from './components/AiMuse';
+import ApiKeyModal from './components/ApiKeyModal';
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -13,6 +13,9 @@ const App: React.FC = () => {
     loadingInfo, 
     speechStatus, 
     isInitialized,
+    isAiDisabled,
+    isApiKeyModalOpen,
+    handleApiKeySubmit,
     menuSettings,
     handleMenuSettingChange,
     resetMenuSettingsToDefault,
@@ -26,6 +29,7 @@ const App: React.FC = () => {
 
   return (
     <div className="relative h-full w-full bg-black">
+      <ApiKeyModal isVisible={isApiKeyModalOpen} onSubmit={handleApiKeySubmit} />
       <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full block" />
       <UIOverlay
         debugInfo={debugInfo}
@@ -44,10 +48,12 @@ const App: React.FC = () => {
             onGenreEditChange={handleGenreEditChange}
             loadSelectedGenreToSliders={loadSelectedGenreToSliders}
             saveSlidersToSelectedGenre={saveSlidersToSelectedGenre}
+            isDisabled={isAiDisabled}
           />
           <AiMuse
             isGenerating={loadingInfo.visible && loadingInfo.message.includes('Muse')}
             onGenerate={handleAiGenerate}
+            isDisabled={isAiDisabled}
           />
         </>
       )}

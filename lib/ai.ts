@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import type { MenuSettings, InputState } from '../types';
 
@@ -83,12 +82,12 @@ Analyze the user's prompt for keywords related to tempo, mood, energy, texture, 
 Return ONLY the JSON object and nothing else. Ensure all floating point numbers are within their specified ranges.`;
 
 
-export async function generateMusicSettings(prompt: string): Promise<MenuSettings> {
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
+export async function generateMusicSettings(prompt: string, apiKey: string): Promise<MenuSettings> {
+  if (!apiKey) {
+    throw new Error("API key is not available.");
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
 
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
@@ -149,9 +148,9 @@ export interface GenreAdaptContext {
     currentBpm: number;
 }
 
-export async function getGenreAdaptation(context: GenreAdaptContext): Promise<{ psySpectrumPosition: number; darknessModifier: number } | null> {
-  if (!process.env.API_KEY) {
-    console.error("API_KEY environment variable not set");
+export async function getGenreAdaptation(context: GenreAdaptContext, apiKey: string): Promise<{ psySpectrumPosition: number; darknessModifier: number } | null> {
+  if (!apiKey) {
+    console.error("API key is not available for genre adaptation.");
     return null;
   }
 
@@ -177,7 +176,7 @@ export async function getGenreAdaptation(context: GenreAdaptContext): Promise<{ 
     Based on this, what is the ideal 'psySpectrumPosition' and 'darknessModifier' to match the vibe?
     `;
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
     const response = await ai.models.generateContent({

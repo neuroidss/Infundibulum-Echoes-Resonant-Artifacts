@@ -1,15 +1,19 @@
-
 import React, { useState, useRef } from 'react';
 
 interface AiMuseProps {
   isGenerating: boolean;
   onGenerate: (prompt: string) => void;
+  isDisabled: boolean;
 }
 
-const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate }) => {
+const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  if (isDisabled) {
+    return null;
+  }
 
   const handleToggle = () => {
     setIsOpen(!isOpen);
