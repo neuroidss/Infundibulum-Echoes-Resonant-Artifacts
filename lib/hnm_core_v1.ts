@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 // This is a direct port of the provided hnm_core_v1.js.
 // It relies on a global `tf` object from the TensorFlow.js CDN script.
@@ -245,7 +244,7 @@ export class NMM_TD_V5_TFJS {
         });
     }
 
-    forwardStep(buInputs, tdSignals, currentState, externalSignal = null, detachNextState = true) {
+    forwardStep(buInputs, tdSignals, currentState, externalSignal = null, detachNextState = true, trainingTarget = null) {
         if (this.isDisposed) throw new Error(`${this.levelName} NMM is disposed.`);
 
         const oldWeightsForChangeCalc = (this.nmmParams.learning_rate > 0) ? this._getLayerWeights() : null;
@@ -318,6 +317,14 @@ export class NMM_TD_V5_TFJS {
             const keptTdNorm = tf.keep(preparedInputs.currentTdNorm);
             const keptExtNorm = tf.keep(preparedInputs.currentExtNorm);
 
+            let finalLossTarget = preparedInputs.finalValTarget;
+            if (trainingTarget && trainingTarget.shape && !trainingTarget.isDisposed) {
+                if (finalLossTarget && !finalLossTarget.isDisposed) {
+                    finalLossTarget.dispose();
+                }
+                finalLossTarget = trainingTarget.clone();
+            }
+
             const predictionBeforeTrain = this.memoryModel.call(preparedInputs.memInput);
             const keptPredictionForOutput = tf.keep(predictionBeforeTrain.clone().reshape([1, 1, this.dim]));
 
@@ -333,7 +340,7 @@ export class NMM_TD_V5_TFJS {
                 if (trainableVarsForOptimizer.length > 0) {
                     const calculateLossFn = () => {
                         const currentPred = this.memoryModel.call(preparedInputs.memInput);
-                        let mseLoss = this.lossFn(preparedInputs.finalValTarget, currentPred);
+                        let mseLoss = this.lossFn(finalLossTarget, currentPred);
                         if (this.nmmParams.weight_decay > 0) {
                             let l2Loss = tf.tensor(0.0);
                             trainableVarsForOptimizer.forEach(v => { if (v.name.includes('kernel')) { l2Loss = l2Loss.add(v.square().sum()); } });
@@ -367,10 +374,12 @@ export class NMM_TD_V5_TFJS {
                 } else { if (this.nmmParams.verbose) hnmLog(`Warning: No trainable variables for NMM ${this.levelName}. Training skipped.`, "warn"); }
             } else {
                 currentLossTensor.dispose();
-                currentLossTensor = tf.keep(this.lossFn(predictionBeforeTrain, preparedInputs.finalValTarget));
+                currentLossTensor = tf.keep(this.lossFn(predictionBeforeTrain, finalLossTarget));
             }
             if (preparedInputs.memInput && !preparedInputs.memInput.isDisposed) preparedInputs.memInput.dispose();
-            if (preparedInputs.finalValTarget && !preparedInputs.finalValTarget.isDisposed) preparedInputs.finalValTarget.dispose();
+            if (finalLossTarget && !finalLossTarget.isDisposed) {
+                finalLossTarget.dispose();
+            }
 
             return { prediction: keptPredictionForOutput, loss: currentLossTensor, buNorm: keptBuNorm, tdNorm: keptTdNorm, extNorm: keptExtNorm };
         });
@@ -506,7 +515,7 @@ export class HierarchicalSystemV5_TFJS {
         return this.levels.map(level => level.getInitialState());
     }
 
-    step(currentBotLevelStates, currentBotLastStepOutputs, sensoryInputs, externalInputsAllSources = {}, detachNextStatesMemory = true) {
+    step(currentBotLevelStates, currentBotLastStepOutputs, sensoryInputs, externalInputsAllSources = {}, detachNextStatesMemory = true, trainingTargets = {}) {
         if (this.isDisposed) throw new Error(`HNS is disposed.`);
 
         const nextBotLevelStatesList = new Array(this.numLevels).fill(null);
@@ -566,8 +575,9 @@ export class HierarchicalSystemV5_TFJS {
                     lvlExtInForNMMStep = tf.keep(tf.zeros([1, 1, expectedExternal.dim]));
                 }
             }
-
-            const nmmOutputs = lvlMgr.forwardStep(lvlBuIn, lvlTdIn, currentLevelSpecificState, lvlExtInForNMMStep, detachNextStatesMemory);
+            
+            const lvlTarget = trainingTargets[lvlName] || null;
+            const nmmOutputs = lvlMgr.forwardStep(lvlBuIn, lvlTdIn, currentLevelSpecificState, lvlExtInForNMMStep, detachNextStatesMemory, lvlTarget);
 
             nextBotLevelStatesList[i] = nmmOutputs.nextState;
             currentStepIntermediateOutputs[lvlName] = tf.keep(nmmOutputs.retrievedVal.clone());

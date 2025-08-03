@@ -14,6 +14,7 @@ interface GuiControllerProps {
     saveSlidersToSelectedGenre: () => void;
     isDisabled: boolean;
     toggleAiConfigModal: () => void;
+    handleTrainOnArtifacts: () => void;
 }
 
 const GuiController: React.FC<GuiControllerProps> = ({
@@ -27,11 +28,12 @@ const GuiController: React.FC<GuiControllerProps> = ({
     saveSlidersToSelectedGenre,
     isDisabled,
     toggleAiConfigModal,
+    handleTrainOnArtifacts
 }) => {
     const guiRef = useRef<GUI | null>(null);
     const controlsRef = useRef<any>({});
-    const propsRef = useRef({ onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal });
-    propsRef.current = { onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal };
+    const propsRef = useRef({ onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal, handleTrainOnArtifacts });
+    propsRef.current = { onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal, handleTrainOnArtifacts };
 
 
     useEffect(() => {
@@ -75,6 +77,13 @@ const GuiController: React.FC<GuiControllerProps> = ({
         hnmInfluenceFolder.add(menuSettings, 'genreRuleInfluence', 0, 1, 0.01).name('Genre Rule Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('genreRuleInfluence', v));
         hnmInfluenceFolder.add(menuSettings, 'micFeedbackToL0Strength', 0, 1, 0.01).name('MicDiff Ext.Strength(L0)').onChange((v:number) => propsRef.current.onMenuSettingChange('micFeedbackToL0Strength', v));
         hnmInfluenceFolder.add(menuSettings, 'explorationInfluence', 0, 1, 0.01).name('HNM Anomaly Explor.').onChange((v:number) => propsRef.current.onMenuSettingChange('explorationInfluence', v));
+
+        const hnmTrainingFolder = gui.addFolder('HNM Training (Experimental)').close();
+        hnmTrainingFolder.add(menuSettings, 'enableHnmTraining').name('Enable Training').onChange(value => propsRef.current.onMenuSettingChange('enableHnmTraining', value));
+        hnmTrainingFolder.add(menuSettings, 'hnmLearningRate', 0.00001, 0.005, 0.00001).name('Learning Rate').onChange(value => propsRef.current.onMenuSettingChange('hnmLearningRate', value));
+        hnmTrainingFolder.add(menuSettings, 'hnmWeightDecay', 0.0, 0.001, 0.00001).name('Weight Decay').onChange(value => propsRef.current.onMenuSettingChange('hnmWeightDecay', value));
+        hnmTrainingFolder.add({ train: () => propsRef.current.handleTrainOnArtifacts() }, 'train').name('Train on Artifacts');
+
 
         const genreSelectFolder = gui.addFolder('Genre Selection').open();
         controlsRef.current.psyController = genreSelectFolder.add(menuSettings, 'psySpectrumPosition', 0, 1, 0.01).name('Psy Spectrum').onChange((v:number) => propsRef.current.onMenuSettingChange('psySpectrumPosition', v));

@@ -29,6 +29,7 @@ const App: React.FC = () => {
     toggleAiConfigModal,
     handleAiConfigSubmit,
     handleCopilotRefine,
+    handleTrainOnArtifacts,
   } = useInfundibulum(canvasRef);
 
   return (
@@ -53,6 +54,7 @@ const App: React.FC = () => {
             saveSlidersToSelectedGenre={saveSlidersToSelectedGenre}
             isDisabled={isAiDisabled}
             toggleAiConfigModal={toggleAiConfigModal}
+            handleTrainOnArtifacts={handleTrainOnArtifacts}
           />
           {menuSettings.showAiMuse && !menuSettings.enableAiCopilotMode && (
             <AiMuse

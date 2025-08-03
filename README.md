@@ -17,27 +17,18 @@ The application's core is a sophisticated, multi-layered AI system inspired by c
 1.  **HNM (Hierarchical Neural Matrix) - The Nervous System:**
     *   **Function:** The real-time core of the application, acting as its "nervous system." It runs dozens of times per second, directly processing user input (touch, motion) and sensor data (microphone) to generate the immediate audio-visual state (`currentResonantState`).
     *   **Inspiration:** Its architecture is directly inspired by the **Hierarchical Reasoning Model (HRM)** paper, featuring interconnected high-level (slow, contextual) and low-level (fast, reactive) modules.
-    *   **Role:** Provides the fluid, organic, and instantaneous interactive feel.
+    *   **Role:** Provides the fluid, organic, and instantaneous interactive feel. It can also be trained on user-created "Resonant Artifacts" to learn personalized aesthetic preferences, in a process inspired by the paper's 'deep supervision' methodology.
 
 2.  **LLM (Interchangeable) - The Strategic Producer:**
     *   **Function:** The high-level, strategic "brain" of the system. It can be powered by various local or cloud-based Large Language Models.
     *   **Role:** It analyzes rich context from the HNM and the system's memory to provide intelligent guidance.
         *   **AI Muse:** Generates completely new sound designs from descriptive text prompts.
-        *   **AI Co-pilot Mode:** A new iterative mode where the AI "listens" to the current soundscape and makes small, targeted adjustments to improve its musicality and balance over time.
+        *   **AI Co-pilot Mode:** An iterative mode where the AI "listens" to the current soundscape and makes small, targeted adjustments to improve its musicality and balance over time.
         *   **Genre-Adapt Mode:** Subtly steers the musical genre based on the user's activity and ambient environment.
 
 3.  **Embeddings (RAG) - The Associative Memory:**
     *   **Function:** The system's long-term, semantic memory, implementing a **Retrieval-Augmented Generation (RAG)** pattern.
     *   **Role:** When you save a "Resonant Artifact," its sonic essence is converted into a numerical vector (an embedding). The HNM can then "recall" these past moments, comparing its current state to its memory and allowing past creative choices to influence the present, creating thematic coherence and evolution.
-
-## Key Features
-
-*   **Deeply Interactive:** Your every move and the sound of your environment directly influence the generative art.
-*   **Flexible AI Backend:** Supports multiple LLM providers, including Google Gemini, OpenAI-compatible APIs, local Ollama servers, and in-browser HuggingFace models.
-*   **AI Muse:** Use a text prompt (e.g., "dreamy ambient soundscape with a slow, pulsing beat") to have the AI completely reconfigure the synthesizer.
-*   **AI Co-pilot Mode:** An iterative mode where the AI actively listens and refines the sound, acting as a collaborative partner.
-*   **Genre-Adapt Mode:** An autonomous mode where the AI listens to the environment and watches your actions, subtly shifting the musical style to match the vibe.
-*   **Resonant Artifacts (Memory):** Capture your favorite moments. The system learns from what you save and uses these "memories" to inform its future creations.
 
 ## Tech Stack
 

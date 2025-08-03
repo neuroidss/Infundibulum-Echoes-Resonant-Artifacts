@@ -1,6 +1,6 @@
 import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider } from './types';
 
-export const VERSION = "0.9.8-AiCopilot";
+export const VERSION = "0.9.9-HrmTraining";
 export const USE_DEBUG = true;
 export const TARGET_FPS = 55;
 export const STATE_VECTOR_SIZE = 64;
@@ -126,6 +126,9 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     aiCallCount: 0,
     aiDebugLog: 'AI Idle. Configure & select a model.',
     showAiDebugLog: false,
+    enableHnmTraining: false,
+    hnmLearningRate: 0.0002,
+    hnmWeightDecay: 0.0001,
 };
 
 export const GENRE_EDIT_SLIDER_COUNT = 16;

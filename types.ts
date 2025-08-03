@@ -71,6 +71,9 @@ export interface MenuSettings {
     aiCallCount: number;
     aiDebugLog: string;
     showAiDebugLog: boolean;
+    enableHnmTraining: boolean;
+    hnmLearningRate: number;
+    hnmWeightDecay: number;
 }
 
 export interface GenreEditState {
