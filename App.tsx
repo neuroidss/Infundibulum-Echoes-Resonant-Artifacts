@@ -1,10 +1,8 @@
-
 import React, { useRef } from 'react';
 import { useInfundibulum } from './hooks/useInfundibulum';
 import UIOverlay from './components/UIOverlay';
 import GuiController from './components/GuiController';
 import AiMuse from './components/AiMuse';
-import ApiKeyModal from './components/ApiKeyModal';
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,11 +13,7 @@ const App: React.FC = () => {
     speechStatus, 
     isInitialized,
     isAiDisabled,
-    isApiKeyModalOpen,
-    handleApiKeySubmit,
-    handleApiConfigChange,
     menuSettings,
-    apiConfig,
     handleMenuSettingChange,
     resetMenuSettingsToDefault,
     resetHnmRag,
@@ -32,7 +26,6 @@ const App: React.FC = () => {
 
   return (
     <div className="relative h-full w-full bg-black">
-      <ApiKeyModal isVisible={isApiKeyModalOpen} onSubmit={handleApiKeySubmit} />
       <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full block" />
       <UIOverlay
         debugInfo={debugInfo}
@@ -44,9 +37,7 @@ const App: React.FC = () => {
         <>
           <GuiController
             menuSettings={menuSettings}
-            apiConfig={apiConfig}
             onMenuSettingChange={handleMenuSettingChange}
-            onApiConfigChange={handleApiConfigChange}
             resetMenuToDefaults={resetMenuSettingsToDefault}
             resetHnmRag={resetHnmRag}
             genreEditState={genreEditState}
@@ -55,11 +46,13 @@ const App: React.FC = () => {
             saveSlidersToSelectedGenre={saveSlidersToSelectedGenre}
             isDisabled={isAiDisabled}
           />
-          <AiMuse
-            isGenerating={loadingInfo.visible && loadingInfo.message.includes('Muse')}
-            onGenerate={handleAiGenerate}
-            isDisabled={isAiDisabled}
-          />
+          {menuSettings.showAiMuse && (
+            <AiMuse
+              isGenerating={loadingInfo.visible && loadingInfo.message.startsWith('AI Muse')}
+              onGenerate={handleAiGenerate}
+              isDisabled={isAiDisabled}
+            />
+          )}
         </>
       )}
     </div>

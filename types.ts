@@ -1,4 +1,3 @@
-
 export interface MenuSettings {
     playerInfluence: number;
     genreRuleInfluence: number;
@@ -61,10 +60,14 @@ export interface MenuSettings {
     enableSpeechCommands: boolean;
     enableTapReset: boolean;
     enableGenreAdaptMode: boolean;
-    enableHnmTrainingMode: boolean;
-    hnmLearningRate: number;
-    hnmWeightDecay: number;
     selectedModelId: string;
+    googleApiKey: string;
+    openAiApiKey: string;
+    openAiBaseUrl: string;
+    ollamaHost: string;
+    showAiMuse: boolean;
+    aiCallCount: number;
+    aiDebugLog: string;
 }
 
 export interface GenreEditState {
@@ -165,13 +168,6 @@ export interface AIModel {
   id: string;
   name: string;
   provider: ModelProvider;
-}
-
-export interface APIConfig {
-  googleAIAPIKey: string;
-  openAIAPIKey: string;
-  openAIBaseUrl: string;
-  ollamaHost: string;
 }
 
 export interface ToolParameter {

@@ -1,21 +1,22 @@
-
-import { GoogleGenAI, Type, FunctionDeclaration, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { pipeline, env as xenovaEnv, TextGenerationPipeline } from '@xenova/transformers';
-import type { MenuSettings, InputState, AIModel, APIConfig, LLMTool, AIResponse, ToolParameter } from '../types';
+import type { MenuSettings, InputState, AIModel, LLMTool, AIResponse, ToolParameter } from '../types';
 import { ModelProvider } from '../types';
-import { AI_MODELS, STANDARD_TOOL_CALL_SYSTEM_PROMPT } from '../constants';
+import { STANDARD_TOOL_CALL_SYSTEM_PROMPT } from '../constants';
+import type { FunctionDeclaration } from "@google/genai";
 
 const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(v, max));
 
 // --- Provider-Specific Services ---
 
 namespace GeminiService {
-    const getAIClient = (apiConfig: APIConfig): GoogleGenAI => {
-        const apiKey = apiConfig.googleAIAPIKey || (typeof process !== 'undefined' && process.env.API_KEY);
-        if (!apiKey) {
-            throw new Error("Google AI API Key not found. Please set it in the app's API Configuration.");
+    const getAIClient = (apiKey: string): GoogleGenAI => {
+        // Prioritize user-provided key, fallback to environment variable.
+        const finalApiKey = apiKey || (process.env.API_KEY as string);
+        if (!finalApiKey) {
+            throw new Error("Google AI API Key not provided in GUI or environment variables.");
         }
-        return new GoogleGenAI({ apiKey });
+        return new GoogleGenAI({ apiKey: finalApiKey });
     };
 
     const sanitizeForFunctionName = (name: string): string => name.replace(/[^a-zA-Z0-9_]/g, '_');
@@ -38,6 +39,9 @@ namespace GeminiService {
             const required: string[] = [];
             tool.parameters.forEach(param => {
                 properties[param.name] = { type: mapTypeToGemini(param.type), description: param.description };
+                if (param.items) {
+                    properties[param.name].items = { type: Type.STRING }; 
+                }
                 if (param.required) required.push(param.name);
             });
             const functionName = sanitizeForFunctionName(tool.name);
@@ -58,18 +62,18 @@ namespace GeminiService {
             }
             return { toolCall: { name: originalToolName, arguments: args || {} } };
         }
-        return { toolCall: null };
+        return { textResponse: response.text };
     };
 
-    export const generateWithNativeTools = async (userInput: string, systemInstruction: string, modelId: string, apiConfig: APIConfig, relevantTools: LLMTool[]): Promise<AIResponse> => {
-        const ai = getAIClient(apiConfig);
+    export const generateWithNativeTools = async (userInput: string, systemInstruction: string, modelId: string, relevantTools: LLMTool[], apiKey: string): Promise<AIResponse> => {
+        const ai = getAIClient(apiKey);
         const { functionDeclarations, toolNameMap } = buildGeminiTools(relevantTools);
         
         const response = await ai.models.generateContent({
             model: modelId,
-            contents: userInput,
+            contents: [{role: "user", parts: [{text: userInput}]}],
             config: {
-                systemInstruction: systemInstruction,
+                systemInstruction: { parts: [{ text: systemInstruction }] },
                 temperature: 0.1,
                 tools: functionDeclarations.length > 0 ? [{ functionDeclarations }] : undefined,
             },
@@ -87,19 +91,22 @@ namespace OpenAIService {
         return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
     };
 
-    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, apiConfig: APIConfig): Promise<string> => {
-        if (!apiConfig.openAIAPIKey) throw new Error("OpenAI API Key is missing.");
-        if (!apiConfig.openAIBaseUrl) throw new Error("OpenAI Base URL is missing.");
+    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, apiKey: string, baseUrl: string): Promise<string> => {
+        const finalApiKey = apiKey || (process.env.OPENAI_API_KEY as string);
+        const finalBaseUrl = baseUrl || (process.env.OPENAI_BASE_URL as string);
+
+        if (!finalApiKey) throw new Error("OpenAI API Key missing from GUI/environment.");
+        if (!finalBaseUrl) throw new Error("OpenAI Base URL missing from GUI/environment.");
 
         const body = {
-            model: modelId.replace('openai/', ''),
+            model: modelId,
             messages: [{ role: 'system', content: systemInstruction }, { role: 'user', content: userInput }],
             temperature: 0.1,
             response_format: { type: 'json_object' }
         };
         const response = await fetchWithTimeout(
-            `${apiConfig.openAIBaseUrl.replace(/\/+$/, '')}/chat/completions`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.openAIAPIKey}` }, body: JSON.stringify(body) }
+            `${finalBaseUrl.replace(/\/+$/, '')}/chat/completions`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${finalApiKey}` }, body: JSON.stringify(body) }
         );
         if (!response.ok) {
             const err = await response.json();
@@ -111,17 +118,19 @@ namespace OpenAIService {
 }
 
 namespace OllamaService {
-    const TIMEOUT = 120000; // 2 minutes
+    const TIMEOUT = 120000;
     const fetchWithTimeout = (url: string, options: RequestInit) => {
         const controller = new AbortController();
         const id = setTimeout(() => controller.abort(), TIMEOUT);
         return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
     };
     
-    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, apiConfig: APIConfig): Promise<string> => {
-        if (!apiConfig.ollamaHost) throw new Error("Ollama Host URL is not configured.");
+    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, ollamaHost: string): Promise<string> => {
+        const finalHost = ollamaHost || (process.env.OLLAMA_HOST as string);
+        if (!finalHost) throw new Error("Ollama Host URL missing from GUI/environment.");
+        
         const body = {
-            model: modelId.replace('ollama/', ''),
+            model: modelId,
             system: systemInstruction,
             prompt: userInput,
             stream: false,
@@ -129,7 +138,7 @@ namespace OllamaService {
             options: { temperature: 0.1 },
         };
         const response = await fetchWithTimeout(
-            `${apiConfig.ollamaHost.replace(/\/+$/, '')}/api/generate`,
+            `${finalHost.replace(/\/+$/, '')}/api/generate`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         );
         if (!response.ok) {
@@ -169,26 +178,33 @@ namespace HuggingFaceService {
         return generator;
     };
     
-    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, apiConfig: APIConfig, onProgress: (message: string) => void): Promise<string> => {
-        const pipe = await getPipeline(modelId.replace('hf/', ''), onProgress);
+    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, onProgress: (message: string) => void): Promise<string> => {
+        const pipe = await getPipeline(modelId, onProgress);
         const prompt = `<|system|>\n${systemInstruction}<|end|>\n<|user|>\n${userInput}<|end|>\n<|assistant|>`;
         const outputs = await pipe(prompt, { max_new_tokens: 2048, temperature: 0.1, do_sample: false });
         const rawText = (outputs[0] as any).generated_text;
-        return rawText.split('<|assistant|>').pop()?.trim() || '{}';
+        const assistantResponse = rawText.split('<|assistant|>').pop()?.trim() || '{}';
+        
+        if (assistantResponse.startsWith('```json')) {
+            return assistantResponse.substring(7, assistantResponse.length - 3).trim();
+        }
+        return assistantResponse;
     };
 }
-
 
 // --- Generic AI Dispatcher ---
 
 const parseJsonOrNull = (jsonString: string): any => {
     if (!jsonString) return null;
-    let jsonText = jsonString.trim();
-    if (jsonText.startsWith('```json')) {
-        jsonText = jsonText.substring(7, jsonText.length - 3).trim();
-    }
     try {
-        return JSON.parse(jsonText);
+        let cleanString = jsonString.trim();
+        if (cleanString.startsWith("```json")) {
+            cleanString = cleanString.substring(7);
+            if (cleanString.endsWith("```")) {
+                cleanString = cleanString.slice(0, -3);
+            }
+        }
+        return JSON.parse(cleanString);
     } catch (e) {
         console.error("Failed to parse JSON response:", jsonString, e);
         return null;
@@ -207,28 +223,42 @@ export const generateResponseWithTools = async (
     userInput: string,
     systemInstruction: string,
     model: AIModel,
-    apiConfig: APIConfig,
+    settings: MenuSettings,
     onProgress: (message: string) => void,
     relevantTools: LLMTool[],
 ): Promise<AIResponse> => {
     switch (model.provider) {
         case ModelProvider.GoogleAI:
-            return GeminiService.generateWithNativeTools(userInput, systemInstruction, model.id, apiConfig, relevantTools);
+            return GeminiService.generateWithNativeTools(userInput, systemInstruction, model.id, relevantTools, settings.googleApiKey);
 
         case ModelProvider.OpenAI_API:
-        case ModelProvider.Ollama:
+        case ModelProvider.Ollama: {
+            if (relevantTools.length !== 1) {
+                throw new Error("OpenAI/Ollama implementation currently supports exactly one tool.");
+            }
+            const tool = relevantTools[0];
+            const paramsSchema = tool.parameters.map(p => `  "${p.name}": // type: ${p.type}, description: ${p.description}${p.required ? ' (required)' : ''}`).join('\n');
+            const fullSystemInstruction = `${systemInstruction}\n\nYou MUST respond with a single, valid JSON object containing the arguments for the '${tool.name}' tool. Do not add any other text, explanation, or markdown formatting. The required arguments are:\n{\n${paramsSchema}\n}`;
+
+            let responseText = "{}";
+            if (model.provider === ModelProvider.OpenAI_API) {
+                responseText = await OpenAIService.generateJsonOutput(userInput, fullSystemInstruction, model.id, settings.openAiApiKey, settings.openAiBaseUrl);
+            } else { // Ollama
+                responseText = await OllamaService.generateJsonOutput(userInput, fullSystemInstruction, model.id, settings.ollamaHost);
+            }
+
+            const parsedArgs = parseJsonOrNull(responseText);
+            if (parsedArgs) {
+                return { toolCall: { name: tool.name, arguments: parsedArgs } };
+            }
+            return { textResponse: responseText };
+        }
+
         case ModelProvider.HuggingFace: {
             const toolsForPrompt = relevantTools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters }));
             const toolDefinitions = JSON.stringify(toolsForPrompt, null, 2);
             const fullSystemInstruction = `${systemInstruction}\n\n${STANDARD_TOOL_CALL_SYSTEM_PROMPT.replace('{{TOOLS_JSON}}', toolDefinitions)}`;
-            let responseText = "{}";
-            if (model.provider === ModelProvider.OpenAI_API) {
-                responseText = await OpenAIService.generateJsonOutput(userInput, fullSystemInstruction, model.id, apiConfig);
-            } else if (model.provider === ModelProvider.Ollama) {
-                responseText = await OllamaService.generateJsonOutput(userInput, fullSystemInstruction, model.id, apiConfig);
-            } else { // HuggingFace
-                responseText = await HuggingFaceService.generateJsonOutput(userInput, fullSystemInstruction, model.id, apiConfig, onProgress);
-            }
+            const responseText = await HuggingFaceService.generateJsonOutput(userInput, fullSystemInstruction, model.id, onProgress);
             return parseToolCallResponse(responseText);
         }
 
@@ -240,18 +270,18 @@ export const generateResponseWithTools = async (
 // --- Application-Specific AI Logic ---
 
 const menuSettingsProperties: { [key: string]: ToolParameter } = {
-  playerInfluence: { name: 'playerInfluence', type: 'number', description: "User touch/motion influence. Range 0-1.", required: true },
-  genreRuleInfluence: { name: 'genreRuleInfluence', type: 'number', description: "Influence of the base genre template. Range 0-1.", required: true },
+  playerInfluence: { name: 'playerInfluence', type: 'number', description: "User touch/motion influence. Range 0-1.", required: false },
+  genreRuleInfluence: { name: 'genreRuleInfluence', type: 'number', description: "Influence of the base genre template. Range 0-1.", required: false },
   psySpectrumPosition: { name: 'psySpectrumPosition', type: 'number', description: "Blends between psytrance styles (chill/dub to progressive/full-on). Range 0-1.", required: true },
   darknessModifier: { name: 'darknessModifier', type: 'number', description: "Blends between light and dark styles. Range 0-1.", required: true },
   masterBPM: { name: 'masterBPM', type: 'number', description: "Master tempo in beats per minute. Typical psytrance is 135-150. Ambient is 60-90.", required: true },
-  kickLevel: { name: 'kickLevel', type: 'number', description: "Kick drum volume. Range 0-1.", required: true },
-  bassLevel: { name: 'bassLevel', type: 'number', description: "Bass volume. Range 0-1.", required: true },
-  leadLevel: { name: 'leadLevel', type: 'number', description: "Lead synth volume. Range 0-1.", required: true },
-  hatLevel: { name: 'hatLevel', type: 'number', description: "Hi-hat volume. Range 0-1.", required: true },
-  snareLevel: { name: 'snareLevel', type: 'number', description: "Overall snare volume. Range 0-1.", required: true },
-  delayMix: { name: 'delayMix', type: 'number', description: "Delay wet/dry mix. Range 0-1.", required: true },
-  reverbMix: { name: 'reverbMix', type: 'number', description: "Reverb wet/dry mix. Range 0-1.", required: true },
+  kickLevel: { name: 'kickLevel', type: 'number', description: "Kick drum volume. Range 0-1.", required: false },
+  bassLevel: { name: 'bassLevel', type: 'number', description: "Bass volume. Range 0-1.", required: false },
+  leadLevel: { name: 'leadLevel', type: 'number', description: "Lead synth volume. Range 0-1.", required: false },
+  hatLevel: { name: 'hatLevel', type: 'number', description: "Hi-hat volume. Range 0-1.", required: false },
+  snareLevel: { name: 'snareLevel', type: 'number', description: "Overall snare volume. Range 0-1.", required: false },
+  delayMix: { name: 'delayMix', type: 'number', description: "Delay wet/dry mix. Range 0-1.", required: false },
+  reverbMix: { name: 'reverbMix', type: 'number', description: "Reverb wet/dry mix. Range 0-1.", required: false },
 };
 
 const generateMusicSettingsTool: LLMTool = {
@@ -269,10 +299,10 @@ const getGenreAdaptationTool: LLMTool = {
     ]
 };
 
-export async function generateMusicSettings(prompt: string, model: AIModel, apiConfig: APIConfig, onProgress: (msg: string) => void): Promise<Partial<MenuSettings>> {
-    const systemInstruction = `You are an expert sound designer specializing in generative psytrance and ambient music. Your task is to generate a complete set of parameters for a complex synthesizer to match the user's request. Call the 'generate_music_settings' tool with the appropriate arguments.`;
+export async function generateMusicSettings(prompt: string, model: AIModel, settings: MenuSettings, onProgress: (msg: string) => void): Promise<Partial<MenuSettings>> {
+    const systemInstruction = `You are an expert sound designer specializing in generative psytrance and ambient music. Your task is to generate a complete set of parameters for a complex synthesizer to match the user's request. Call the 'generate_music_settings' tool with the appropriate arguments. Be creative and bold with the parameters to create a unique sound.`;
     
-    const response = await generateResponseWithTools(prompt, systemInstruction, model, apiConfig, onProgress, [generateMusicSettingsTool]);
+    const response = await generateResponseWithTools(prompt, systemInstruction, model, settings, onProgress, [generateMusicSettingsTool]);
 
     if (response.toolCall?.name === 'generate_music_settings' && response.toolCall.arguments) {
         return response.toolCall.arguments;
@@ -289,7 +319,7 @@ export interface GenreAdaptContext {
     currentBpm: number;
 }
 
-export async function getGenreAdaptation(context: GenreAdaptContext, model: AIModel, apiConfig: APIConfig, onProgress: (msg: string) => void): Promise<{ psySpectrumPosition: number; darknessModifier: number } | null> {
+export async function getGenreAdaptation(context: GenreAdaptContext, model: AIModel, settings: MenuSettings, onProgress: (msg: string) => void): Promise<{ psySpectrumPosition: number; darknessModifier: number } | null> {
     const systemInstruction = `You are an intelligent DJ assistant. Your goal is to subtly guide the musical genre. Based on the user's activity and environment, call the 'get_genre_adaptation' tool to suggest a new target 'psySpectrumPosition' (0=chill, 1=full-on) and 'darknessModifier' (0=light, 1=dark).`;
 
     const micEnergyDesc = context.mic.rhythmPeak > 0.6 ? 'high' : context.mic.rhythmPeak > 0.3 ? 'medium' : 'low';
@@ -301,7 +331,7 @@ export async function getGenreAdaptation(context: GenreAdaptContext, model: AIMo
 - Current Synth Tempo: ${context.currentBpm.toFixed(0)} BPM.
 Based on this, what is the ideal genre direction?`;
 
-    const response = await generateResponseWithTools(prompt, systemInstruction, model, apiConfig, onProgress, [getGenreAdaptationTool]);
+    const response = await generateResponseWithTools(prompt, systemInstruction, model, settings, onProgress, [getGenreAdaptationTool]);
 
     if (response.toolCall?.name === 'get_genre_adaptation' && response.toolCall.arguments) {
         const { psySpectrumPosition, darknessModifier } = response.toolCall.arguments;

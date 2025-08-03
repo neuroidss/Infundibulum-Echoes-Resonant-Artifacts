@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import * as THREE from 'three';
 import { pipeline, env as xenovaEnv } from '@xenova/transformers';
@@ -11,11 +10,11 @@ import {
     RESET_SECOND_TAP_WINDOW_MS, FULLSCREEN_REQUESTED_KEY, HNM_VERBOSE, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM,
     HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM, HNM_HIERARCHY_LEVEL_CONFIGS, HNM_POLICY_HEAD_INPUT_LEVEL_NAME,
     GENRE_TARGET_STATES, DEFAULT_MENU_SETTINGS, GENRE_EDIT_SLIDER_COUNT, GENRE_EDIT_SLIDER_MAPPING, clamp,
-    TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, REASONABLE_SHADER_ARTIFACT_CAP, LOCAL_STORAGE_API_CONFIG_KEY, AI_MODELS
+    TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, REASONABLE_SHADER_ARTIFACT_CAP, AI_MODELS
 } from '../constants';
 import { HierarchicalSystemV5_TFJS, disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
 import { generateMusicSettings, getGenreAdaptation } from '../lib/ai';
-import type { MenuSettings, GenreEditState, InputState, Artifact, ActiveArtifactInfo, HnmState, HnmLastStepOutputs, APIConfig } from '../types';
+import type { MenuSettings, GenreEditState, InputState, Artifact, ActiveArtifactInfo, HnmState, HnmLastStepOutputs } from '../types';
 import { ModelProvider } from '../types';
 
 declare var tf: any;
@@ -113,11 +112,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const [isInitialized, setIsInitialized] = useState(false);
     
     // API/Model State
-    const [apiConfig, setApiConfig] = useState<APIConfig>({
-        googleAIAPIKey: '', openAIAPIKey: '', openAIBaseUrl: '', ollamaHost: 'http://localhost:11434'
-    });
     const [isAiDisabled, setIsAiDisabled] = useState(true);
-    const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
 
     // Menu/Settings State
     const [menuSettings, setMenuSettings] = useState<MenuSettings>({ ...DEFAULT_MENU_SETTINGS });
@@ -171,19 +166,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const isAdaptingRef = useRef(false);
     const menuSettingsRef = useRef(menuSettings);
     useEffect(() => { menuSettingsRef.current = menuSettings; }, [menuSettings]);
-    const apiConfigRef = useRef(apiConfig);
-    useEffect(() => { apiConfigRef.current = apiConfig; }, [apiConfig]);
 
     // --- API/Model Management ---
-    useEffect(() => {
-        try {
-            const savedConfig = localStorage.getItem(LOCAL_STORAGE_API_CONFIG_KEY);
-            if (savedConfig) {
-                setApiConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) }));
-            }
-        } catch (e) { console.error("Could not load API config", e); }
-    }, []);
-
     useEffect(() => {
         const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
         if (!selectedModel) {
@@ -191,42 +175,28 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             return;
         }
 
+        const hasEnv = typeof process !== 'undefined' && process.env;
+
         let isEnabled = false;
         switch (selectedModel.provider) {
             case ModelProvider.GoogleAI:
-                isEnabled = !!apiConfig.googleAIAPIKey;
+                isEnabled = !!menuSettings.googleApiKey || (hasEnv && !!process.env.API_KEY);
                 break;
             case ModelProvider.OpenAI_API:
-                isEnabled = !!apiConfig.openAIAPIKey && !!apiConfig.openAIBaseUrl;
+                const keyOK = !!menuSettings.openAiApiKey || (hasEnv && !!process.env.OPENAI_API_KEY);
+                const urlOK = !!menuSettings.openAiBaseUrl || (hasEnv && !!process.env.OPENAI_BASE_URL);
+                isEnabled = keyOK && urlOK;
                 break;
             case ModelProvider.Ollama:
-                isEnabled = !!apiConfig.ollamaHost;
+                isEnabled = !!menuSettings.ollamaHost || (hasEnv && !!process.env.OLLAMA_HOST);
                 break;
             case ModelProvider.HuggingFace:
-                isEnabled = true; // Runs in browser
+                isEnabled = true; // Runs in browser, always available
                 break;
         }
         setIsAiDisabled(!isEnabled);
-    }, [apiConfig, menuSettings.selectedModelId]);
+    }, [menuSettings.selectedModelId, menuSettings.googleApiKey, menuSettings.openAiApiKey, menuSettings.openAiBaseUrl, menuSettings.ollamaHost]);
     
-    const handleApiConfigChange = useCallback((newConfig: Partial<APIConfig>) => {
-        setApiConfig(prev => {
-            const updated = { ...prev, ...newConfig };
-            try {
-                localStorage.setItem(LOCAL_STORAGE_API_CONFIG_KEY, JSON.stringify(updated));
-            } catch (e) {
-                console.error("Could not save API config", e);
-            }
-            return updated;
-        });
-    }, []);
-
-    const handleApiKeySubmit = useCallback((key: string) => {
-        handleApiConfigChange({ googleAIAPIKey: key });
-        setIsApiKeyModalOpen(false);
-        showWarning("API Key set for this session.", 3000);
-    }, [handleApiConfigChange]);
-
     // UI Callbacks
     const showWarning = useCallback((message: string, duration: number = 5000) => {
         setWarningInfo({ message, visible: true });
@@ -248,6 +218,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         setLoadingInfo({ visible, message, progress });
     }, []);
     
+    // --- AI Status and Settings Callbacks ---
+    const handleAiProgress = useCallback((logMessage: string) => {
+        setMenuSettings(prev => ({...prev, aiDebugLog: logMessage}));
+    }, []);
+
     // Genre & Settings Callbacks
     const updateCurrentGenreRuleVector = useCallback(() => {
         const spectrumVal = menuSettings.psySpectrumPosition * 100;
@@ -271,8 +246,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
     const saveMenuSettings = useCallback(() => {
         try {
-            const settingsToSave: Partial<MenuSettings & { version: string }> = { ...menuSettings, version: VERSION };
-            localStorage.setItem(LOCAL_STORAGE_MENU_KEY, JSON.stringify(settingsToSave));
+            const dataToSave = {
+                version: VERSION,
+                settings: menuSettings
+            };
+            localStorage.setItem(LOCAL_STORAGE_MENU_KEY, JSON.stringify(dataToSave));
         } catch (e) { console.error("Error saving menu settings", e); }
     }, [menuSettings]);
 
@@ -288,8 +266,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             if (key === 'enableGenreAdaptMode') {
                 if (value) {
                     if (isAiDisabled) {
-                        showWarning("Genre-Adapt requires a configured AI model.", 4000);
-                        setIsApiKeyModalOpen(true);
+                        showWarning("Genre-Adapt requires a configured AI model.", 5000);
                         return { ...newState, enableGenreAdaptMode: false }; 
                     }
                     if (genreAdaptIntervalRef.current) clearInterval(genreAdaptIntervalRef.current);
@@ -298,6 +275,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                         if (isAdaptingRef.current || !appState.artifactManager || !appState.inputState || isAiDisabled) return;
 
                         isAdaptingRef.current = true;
+                        handleAiProgress("Adapt: Analyzing context...");
                         try {
                             const selectedModel = AI_MODELS.find(m => m.id === menuSettingsRef.current.selectedModelId);
                             if (!selectedModel) return;
@@ -309,14 +287,20 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                                 currentBpm: menuSettingsRef.current.masterBPM
                             };
 
-                            const result = await getGenreAdaptation(context, selectedModel, apiConfigRef.current, (msg) => showLoading(true, 'AI Adapting...', msg));
-                            if (result) genreAdaptTargetRef.current = result;
+                            const result = await getGenreAdaptation(context, selectedModel, menuSettingsRef.current, (msg) => handleAiProgress(`Adapt: ${msg}`));
+                            if (result) {
+                                genreAdaptTargetRef.current = result;
+                                setMenuSettings(prev => ({...prev, aiCallCount: (prev.aiCallCount || 0) + 1, aiDebugLog: 'Adapt: Success'}));
+                            } else {
+                                handleAiProgress("Adapt: No result.");
+                            }
                         } catch (e) {
+                            const errorMsg = (e as Error).message;
                             console.error("Genre adaptation failed:", e);
-                            showWarning(`Genre adaptation failed: ${(e as Error).message}`, 3000);
+                            showWarning(`Genre adaptation failed: ${errorMsg}`, 3000);
+                            handleAiProgress(`Adapt Error: ${errorMsg.substring(0, 40)}...`);
                         } finally {
                             isAdaptingRef.current = false;
-                            showLoading(false);
                         }
                     };
                     adaptFn(); 
@@ -325,17 +309,17 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                     if (genreAdaptIntervalRef.current) {
                         clearInterval(genreAdaptIntervalRef.current);
                         genreAdaptIntervalRef.current = null;
+                        handleAiProgress("Adapt: Disabled.");
                     }
                 }
             }
             return newState;
         });
-    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, isAiDisabled]);
+    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, isAiDisabled, handleAiProgress]);
 
     const handleAiGenerate = useCallback(async (prompt: string) => {
         if (isAiDisabled) {
-            showWarning("AI Muse requires a configured model.", 4000);
-            setIsApiKeyModalOpen(true);
+            showWarning("AI Muse requires a configured AI model.", 5000);
             return;
         }
         if (!prompt) {
@@ -343,21 +327,29 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             return;
         }
         showLoading(true, "AI Muse is thinking...", "Generating soundscape...");
+        handleAiProgress(`Muse: ${prompt.substring(0, 25)}...`);
         
         try {
             const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
             if (!selectedModel) throw new Error("No valid AI model selected.");
             
-            const newSettings = await generateMusicSettings(prompt, selectedModel, apiConfig, (msg) => showLoading(true, 'AI Muse is thinking...', msg));
-            setMenuSettings(prev => ({...prev, ...newSettings}));
+            const newSettings = await generateMusicSettings(prompt, selectedModel, menuSettings, (msg) => handleAiProgress(`Muse: ${msg}`));
+            setMenuSettings(prev => ({
+                ...prev, 
+                ...newSettings, 
+                aiCallCount: (prev.aiCallCount || 0) + 1,
+                aiDebugLog: "Muse: Success."
+            }));
             showWarning("AI Muse has created a new soundscape!", 4000);
         } catch (error) {
+            const errorMsg = (error as Error).message;
             console.error("AI Muse generation failed:", error);
-            showError(`AI Muse failed: ${(error as Error).message}`);
+            showError(`AI Muse failed: ${errorMsg}`);
+            handleAiProgress(`Muse Error: ${errorMsg.substring(0, 40)}...`);
         } finally {
             showLoading(false);
         }
-    }, [showLoading, showError, showWarning, apiConfig, menuSettings.selectedModelId, isAiDisabled]);
+    }, [showLoading, showError, showWarning, menuSettings, isAiDisabled, handleAiProgress]);
 
     useEffect(() => {
         updateCurrentGenreRuleVector();
@@ -411,18 +403,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         appState.speechController?.stopListening();
         sessionStorage.setItem('hnm_rag_reset_just_occurred', 'true');
         localStorage.removeItem(LOCAL_STORAGE_KEY);
+        localStorage.removeItem(LOCAL_STORAGE_MENU_KEY);
         sessionStorage.removeItem(FULLSCREEN_REQUESTED_KEY);
         setTimeout(() => window.location.reload(), 500);
     }, [showWarning, appState]);
     
-    // HNM Training Mode Effect
-    useEffect(() => {
-        if (!appState.hnmSystem) return;
-        const effectiveLR = menuSettings.enableHnmTrainingMode ? menuSettings.hnmLearningRate : 0;
-        const effectiveWD = menuSettings.enableHnmTrainingMode ? menuSettings.hnmWeightDecay : 0;
-        appState.hnmSystem.setLearningParameters(effectiveLR, effectiveWD);
-    }, [menuSettings.enableHnmTrainingMode, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, appState.hnmSystem]);
-
     // Main initialization and game loop effect
     useEffect(() => {
         let isMounted = true;
@@ -836,7 +821,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                         true
                     );
 
-                    let hnmL1Output = hnsStepResults.newlyRetrievedValues[HNM_POLICY_HEAD_INPUT_LEVEL_NAME];
+                    let hnmL1Output = hnsStepResults.newlyRetrievedValues[HNM_POLICY_HEAD_INPUT_LEVEL_NAME].retrievedVal;
                     const blendedOutput = hnmL1Output.mul(1.0 - menuSettingsRef.current.genreRuleInfluence).add(genreRuleTensor.mul(menuSettingsRef.current.genreRuleInfluence));
                     
                     let totalAnomaly = 0; Object.values(hnsStepResults.anomalies).forEach((t:any) => totalAnomaly += t.dataSync()[0]);
@@ -860,7 +845,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
                 appState.currentResonantState = hnmStepPackage.newResonantState;
                 appState.hnmMemoryStates = hnmStepPackage.nextHnmStates;
-                appState.hnmLastStepOutputs = hnmStepPackage.newlyRetrievedValues;
+                appState.hnmLastStepOutputs = hnmStepPackage.nextHnmOutputs;
 
             } catch(e) { console.error("Game loop TF/HNM error", e); }
 
@@ -908,6 +893,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             if (!isMounted) return;
             showLoading(true, "Initializing Core Systems...");
             await tf.ready();
+            tf.setBackend('webgl');
             
             const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -946,7 +932,12 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             appState.inputProcessor = new PlaceholderInputProcessor(INPUT_VECTOR_SIZE, STATE_VECTOR_SIZE);
             appState.featureExtractor = new FeatureExtractor(STATE_VECTOR_SIZE);
             appState.artifactManager = new ArtifactManager(MAX_ARTIFACTS, STATE_VECTOR_SIZE, EMBEDDING_DIM, appState.featureExtractor, appState.embeddingPipeline);
-            appState.hnmSystem = new HierarchicalSystemV5_TFJS(HNM_HIERARCHY_LEVEL_CONFIGS, { HNM_VERBOSE });
+            
+            const hnmSystem = new HierarchicalSystemV5_TFJS(HNM_HIERARCHY_LEVEL_CONFIGS, { HNM_VERBOSE });
+            appState.hnmSystem = hnmSystem;
+            // Set a default learning rate of 0, effectively disabling training unless explicitly enabled.
+            hnmSystem.setLearningParameters(0, 0);
+
             appState.currentResonantState = tf.keep(tf.fill([1, 1, STATE_VECTOR_SIZE], 0.5));
             appState.hnmMemoryStates = appState.hnmSystem.getInitialStates();
             HNM_HIERARCHY_LEVEL_CONFIGS.forEach(cfg => { appState.hnmLastStepOutputs[cfg.name] = { retrievedVal: tf.keep(tf.zeros([1, 1, cfg.dim]))}; });
@@ -954,15 +945,28 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             
             const hnmRagReset = sessionStorage.getItem('hnm_rag_reset_just_occurred') === 'true';
             sessionStorage.removeItem('hnm_rag_reset_just_occurred');
-            const savedMenu = localStorage.getItem(LOCAL_STORAGE_MENU_KEY);
-            if (savedMenu) {
+
+            const savedMenuJSON = localStorage.getItem(LOCAL_STORAGE_MENU_KEY);
+            if (savedMenuJSON && !hnmRagReset) {
                 try {
-                    const parsed = JSON.parse(savedMenu);
-                    if (parsed.version && parsed.version.split('-')[0] === VERSION.split('-')[0] && !hnmRagReset) {
-                        setMenuSettings(s => ({...s, ...parsed}));
+                    const parsed = JSON.parse(savedMenuJSON);
+                    if (parsed.version === VERSION && parsed.settings) {
+                        const mergedSettings = { ...DEFAULT_MENU_SETTINGS, ...parsed.settings };
+                        setMenuSettings(mergedSettings);
+                    } else {
+                        showWarning(`Settings reset due to app update (v${VERSION.split('-')[0]})`, 4000);
+                        localStorage.removeItem(LOCAL_STORAGE_MENU_KEY);
+                        setMenuSettings({ ...DEFAULT_MENU_SETTINGS });
                     }
-                } catch(e) { console.error("Failed to parse saved menu settings", e); }
+                } catch (e) {
+                    console.error("Failed to parse saved menu settings, resetting.", e);
+                    localStorage.removeItem(LOCAL_STORAGE_MENU_KEY);
+                    setMenuSettings({ ...DEFAULT_MENU_SETTINGS });
+                }
+            } else {
+                setMenuSettings({ ...DEFAULT_MENU_SETTINGS });
             }
+
             const savedState = localStorage.getItem(LOCAL_STORAGE_KEY);
             if(savedState && !hnmRagReset){
                 const parsed = JSON.parse(savedState);
@@ -1009,11 +1013,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         speechStatus,
         isInitialized,
         isAiDisabled,
-        isApiKeyModalOpen,
-        handleApiKeySubmit, // Keep for modal
-        handleApiConfigChange, // For GUI
         menuSettings,
-        apiConfig,
         handleMenuSettingChange,
         resetMenuSettingsToDefault,
         resetHnmRag,

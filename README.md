@@ -1,4 +1,3 @@
-
 # Infundibulum Echoes - Resonant Artifacts
 
 <p align="center">
@@ -70,13 +69,14 @@ The application's core is a sophisticated, multi-layered AI system inspired by c
     npm run dev
     ```
 4.  **Configure the AI Provider:**
-    *   Once the app is running, open the settings panel (top-right).
-    *   Under the "AI Configuration" folder, select your desired model from the "AI Model" dropdown.
-    *   The required input fields (API Key, Host URL, etc.) will appear. Fill them out.
-    *   **For Ollama:**
-        *   Make sure your Ollama server is running.
-        *   Pull a model, e.g., `ollama run llama3`.
-        *   In the app's settings, select an Ollama model and ensure the "Ollama Host URL" is correct (default is `http://localhost:11434`).
-    *   **For Cloud Models (Gemini/OpenAI):**
-        *   Select the model and enter your API key in the corresponding field.
-    *   All settings are saved automatically to your browser's local storage.
+    *   AI provider credentials are set directly within the application's GUI.
+    *   Open the settings panel in the top-right corner.
+    *   Open the "AI Configuration" folder.
+    *   Enter your credentials in the respective fields:
+        *   **Google API Key:** For `GoogleAI` models.
+        *   **OpenAI API Key & Base URL:** For `OpenAI_API` models.
+        *   **Ollama Host:** For `Ollama` models (e.g., `http://localhost:11434`).
+    *   **For HuggingFace:** No configuration is needed as the models run directly in the browser.
+    *   Settings are saved to your browser's local storage automatically.
+    *   After configuring, select your desired model from the "AI Model" dropdown in the "AI" folder. The AI features will now be enabled for that model.
+    *   **Environment Variable Fallback:** If a setting is left blank in the GUI, the application will attempt to use a corresponding environment variable (`API_KEY` for Google, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_HOST`) if available. GUI settings always take priority.

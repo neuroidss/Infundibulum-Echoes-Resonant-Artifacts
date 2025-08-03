@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 // This is a direct port of the provided hnm_core_v1.js.
 // It relies on a global `tf` object from the TensorFlow.js CDN script.
@@ -570,7 +571,7 @@ export class HierarchicalSystemV5_TFJS {
 
             nextBotLevelStatesList[i] = nmmOutputs.nextState;
             currentStepIntermediateOutputs[lvlName] = tf.keep(nmmOutputs.retrievedVal.clone());
-            newlyRetrievedValuesForAllLevelsDict[lvlName] = nmmOutputs.retrievedVal;
+            newlyRetrievedValuesForAllLevelsDict[lvlName] = { retrievedVal: nmmOutputs.retrievedVal };
 
             stepAnomalies[lvlName] = nmmOutputs.anomalyScore;
             stepWeightChanges[lvlName] = nmmOutputs.weightChange;
