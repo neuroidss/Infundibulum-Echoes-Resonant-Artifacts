@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import * as THREE from 'three';
 import { pipeline, env as xenovaEnv } from '@xenova/transformers';
@@ -10,11 +11,12 @@ import {
     RESET_SECOND_TAP_WINDOW_MS, FULLSCREEN_REQUESTED_KEY, HNM_VERBOSE, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM,
     HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM, HNM_HIERARCHY_LEVEL_CONFIGS, HNM_POLICY_HEAD_INPUT_LEVEL_NAME,
     GENRE_TARGET_STATES, DEFAULT_MENU_SETTINGS, GENRE_EDIT_SLIDER_COUNT, GENRE_EDIT_SLIDER_MAPPING, clamp,
-    TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, REASONABLE_SHADER_ARTIFACT_CAP
+    TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, REASONABLE_SHADER_ARTIFACT_CAP, LOCAL_STORAGE_API_CONFIG_KEY, AI_MODELS
 } from '../constants';
 import { HierarchicalSystemV5_TFJS, disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
 import { generateMusicSettings, getGenreAdaptation } from '../lib/ai';
-import type { MenuSettings, GenreEditState, InputState, Artifact, ActiveArtifactInfo, HnmState, HnmLastStepOutputs } from '../types';
+import type { MenuSettings, GenreEditState, InputState, Artifact, ActiveArtifactInfo, HnmState, HnmLastStepOutputs, APIConfig } from '../types';
+import { ModelProvider } from '../types';
 
 declare var tf: any;
 
@@ -110,8 +112,10 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const [speechStatus, setSpeechStatus] = useState('Idle');
     const [isInitialized, setIsInitialized] = useState(false);
     
-    // API Key State
-    const [apiKey, setApiKey] = useState<string | null>(null);
+    // API/Model State
+    const [apiConfig, setApiConfig] = useState<APIConfig>({
+        googleAIAPIKey: '', openAIAPIKey: '', openAIBaseUrl: '', ollamaHost: 'http://localhost:11434'
+    });
     const [isAiDisabled, setIsAiDisabled] = useState(true);
     const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
 
@@ -166,34 +170,62 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     });
     const isAdaptingRef = useRef(false);
     const menuSettingsRef = useRef(menuSettings);
-    useEffect(() => {
-        menuSettingsRef.current = menuSettings;
-    }, [menuSettings]);
+    useEffect(() => { menuSettingsRef.current = menuSettings; }, [menuSettings]);
+    const apiConfigRef = useRef(apiConfig);
+    useEffect(() => { apiConfigRef.current = apiConfig; }, [apiConfig]);
 
-    // --- API Key Management ---
+    // --- API/Model Management ---
     useEffect(() => {
-        const envKey = (typeof process !== 'undefined' && process.env) ? process.env.GEMINI_API_KEY : null;
-        const sessionKey = sessionStorage.getItem('gemini_api_key');
-        
-        if (envKey) {
-            setApiKey(envKey);
-        } else if (sessionKey) {
-            setApiKey(sessionKey);
-        } else {
-            setIsApiKeyModalOpen(true);
-        }
+        try {
+            const savedConfig = localStorage.getItem(LOCAL_STORAGE_API_CONFIG_KEY);
+            if (savedConfig) {
+                setApiConfig(prev => ({ ...prev, ...JSON.parse(savedConfig) }));
+            }
+        } catch (e) { console.error("Could not load API config", e); }
     }, []);
 
     useEffect(() => {
-        setIsAiDisabled(!apiKey);
-    }, [apiKey]);
+        const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
+        if (!selectedModel) {
+            setIsAiDisabled(true);
+            return;
+        }
+
+        let isEnabled = false;
+        switch (selectedModel.provider) {
+            case ModelProvider.GoogleAI:
+                isEnabled = !!apiConfig.googleAIAPIKey;
+                break;
+            case ModelProvider.OpenAI_API:
+                isEnabled = !!apiConfig.openAIAPIKey && !!apiConfig.openAIBaseUrl;
+                break;
+            case ModelProvider.Ollama:
+                isEnabled = !!apiConfig.ollamaHost;
+                break;
+            case ModelProvider.HuggingFace:
+                isEnabled = true; // Runs in browser
+                break;
+        }
+        setIsAiDisabled(!isEnabled);
+    }, [apiConfig, menuSettings.selectedModelId]);
     
+    const handleApiConfigChange = useCallback((newConfig: Partial<APIConfig>) => {
+        setApiConfig(prev => {
+            const updated = { ...prev, ...newConfig };
+            try {
+                localStorage.setItem(LOCAL_STORAGE_API_CONFIG_KEY, JSON.stringify(updated));
+            } catch (e) {
+                console.error("Could not save API config", e);
+            }
+            return updated;
+        });
+    }, []);
+
     const handleApiKeySubmit = useCallback((key: string) => {
-        sessionStorage.setItem('gemini_api_key', key);
-        setApiKey(key);
+        handleApiConfigChange({ googleAIAPIKey: key });
         setIsApiKeyModalOpen(false);
         showWarning("API Key set for this session.", 3000);
-    }, []);
+    }, [handleApiConfigChange]);
 
     // UI Callbacks
     const showWarning = useCallback((message: string, duration: number = 5000) => {
@@ -249,50 +281,46 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             const newState = { ...prev, [key]: value };
 
             if (key === 'enableSpeechCommands') {
-                if (value) {
-                    appState.speechController?.startListening();
-                } else {
-                    appState.speechController?.stopListening();
-                }
+                if (value) appState.speechController?.startListening();
+                else appState.speechController?.stopListening();
             }
             
             if (key === 'enableGenreAdaptMode') {
                 if (value) {
-                    if (!apiKey) {
-                        showWarning("Genre-Adapt requires an API key.", 4000);
+                    if (isAiDisabled) {
+                        showWarning("Genre-Adapt requires a configured AI model.", 4000);
+                        setIsApiKeyModalOpen(true);
                         return { ...newState, enableGenreAdaptMode: false }; 
                     }
                     if (genreAdaptIntervalRef.current) clearInterval(genreAdaptIntervalRef.current);
                     
                     const adaptFn = async () => {
-                        if (isAdaptingRef.current || !appState.artifactManager || !appState.inputState || !apiKey) return;
+                        if (isAdaptingRef.current || !appState.artifactManager || !appState.inputState || isAiDisabled) return;
 
                         isAdaptingRef.current = true;
                         try {
-                            const recentArtifacts = appState.artifactManager.artifacts.slice(-3);
-                            const recentTags = recentArtifacts.map((a: Artifact) => a.featureTags);
+                            const selectedModel = AI_MODELS.find(m => m.id === menuSettingsRef.current.selectedModelId);
+                            if (!selectedModel) return;
 
                             const context = {
                                 mic: appState.inputState.mic,
                                 motion: appState.inputState.accelerometer,
-                                recentArtifactTags: recentTags,
+                                recentArtifactTags: appState.artifactManager.artifacts.slice(-3).map((a: Artifact) => a.featureTags),
                                 currentBpm: menuSettingsRef.current.masterBPM
                             };
 
-                            const result = await getGenreAdaptation(context, apiKey);
-                            if (result) {
-                                genreAdaptTargetRef.current = result;
-                            }
+                            const result = await getGenreAdaptation(context, selectedModel, apiConfigRef.current, (msg) => showLoading(true, 'AI Adapting...', msg));
+                            if (result) genreAdaptTargetRef.current = result;
                         } catch (e) {
                             console.error("Genre adaptation failed:", e);
-                            showWarning("Genre adaptation failed.", 3000);
+                            showWarning(`Genre adaptation failed: ${(e as Error).message}`, 3000);
                         } finally {
                             isAdaptingRef.current = false;
+                            showLoading(false);
                         }
                     };
                     adaptFn(); 
                     genreAdaptIntervalRef.current = setInterval(adaptFn, 20000);
-
                 } else {
                     if (genreAdaptIntervalRef.current) {
                         clearInterval(genreAdaptIntervalRef.current);
@@ -302,11 +330,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             }
             return newState;
         });
-    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, apiKey]);
+    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, isAiDisabled]);
 
     const handleAiGenerate = useCallback(async (prompt: string) => {
-        if (!apiKey) {
-            showWarning("AI Muse requires an API key.", 4000);
+        if (isAiDisabled) {
+            showWarning("AI Muse requires a configured model.", 4000);
             setIsApiKeyModalOpen(true);
             return;
         }
@@ -315,17 +343,21 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             return;
         }
         showLoading(true, "AI Muse is thinking...", "Generating soundscape...");
+        
         try {
-            const newSettings = await generateMusicSettings(prompt, apiKey);
-            setMenuSettings(newSettings);
+            const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
+            if (!selectedModel) throw new Error("No valid AI model selected.");
+            
+            const newSettings = await generateMusicSettings(prompt, selectedModel, apiConfig, (msg) => showLoading(true, 'AI Muse is thinking...', msg));
+            setMenuSettings(prev => ({...prev, ...newSettings}));
             showWarning("AI Muse has created a new soundscape!", 4000);
         } catch (error) {
             console.error("AI Muse generation failed:", error);
-            showError("The AI Muse failed to generate a sound. Please try again.");
+            showError(`AI Muse failed: ${(error as Error).message}`);
         } finally {
             showLoading(false);
         }
-    }, [showLoading, showError, showWarning, apiKey]);
+    }, [showLoading, showError, showWarning, apiConfig, menuSettings.selectedModelId, isAiDisabled]);
 
     useEffect(() => {
         updateCurrentGenreRuleVector();
@@ -333,7 +365,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     }, [menuSettings, isInitialized, updateCurrentGenreRuleVector, saveMenuSettings]);
 
     const resetMenuSettingsToDefault = useCallback(() => {
-        setMenuSettings(DEFAULT_MENU_SETTINGS);
+        const { selectedModelId, ...defaults } = DEFAULT_MENU_SETTINGS;
+        setMenuSettings(prev => ({ ...prev, ...defaults }));
         showWarning("Menu settings reset to default.", 2000);
     }, [showWarning]);
 
@@ -385,12 +418,9 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     // HNM Training Mode Effect
     useEffect(() => {
         if (!appState.hnmSystem) return;
-
         const effectiveLR = menuSettings.enableHnmTrainingMode ? menuSettings.hnmLearningRate : 0;
         const effectiveWD = menuSettings.enableHnmTrainingMode ? menuSettings.hnmWeightDecay : 0;
-        
         appState.hnmSystem.setLearningParameters(effectiveLR, effectiveWD);
-
     }, [menuSettings.enableHnmTrainingMode, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, appState.hnmSystem]);
 
     // Main initialization and game loop effect
@@ -757,7 +787,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 });
             }
 
-            const { renderer, scene, camera, material, audioContext, audioWorkletNode, analyserNode, hnmSystem, inputState, currentResonantState } = appState;
+            const { renderer, scene, camera, material, audioContext, audioWorkletNode, hnmSystem, inputState, currentResonantState, analyserNode } = appState;
             if (!renderer || !scene || !camera || !material || !audioContext || !audioWorkletNode || !hnmSystem || !currentResonantState || currentResonantState.isDisposed) return;
             
             const currentTime = timestamp / 1000.0;
@@ -980,8 +1010,10 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         isInitialized,
         isAiDisabled,
         isApiKeyModalOpen,
-        handleApiKeySubmit,
+        handleApiKeySubmit, // Keep for modal
+        handleApiConfigChange, // For GUI
         menuSettings,
+        apiConfig,
         handleMenuSettingChange,
         resetMenuSettingsToDefault,
         resetHnmRag,

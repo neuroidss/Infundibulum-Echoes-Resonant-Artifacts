@@ -1,6 +1,7 @@
-import { MenuSettings, HnmLevelConfig } from './types';
 
-export const VERSION = "0.8.0-HrmLearning";
+import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider } from './types';
+
+export const VERSION = "0.9.0-MultiLLM";
 export const USE_DEBUG = true;
 export const TARGET_FPS = 55;
 export const STATE_VECTOR_SIZE = 64;
@@ -18,6 +19,7 @@ export const MIC_FFT_SIZE = 256;
 export const ACCEL_FFT_SIZE = 64;
 export const LOCAL_STORAGE_KEY = `infundibulumEchoesState_v${VERSION}`;
 export const LOCAL_STORAGE_MENU_KEY = `infundibulumEchoesMenuSettings_v${VERSION}`;
+export const LOCAL_STORAGE_API_CONFIG_KEY = `infundibulumEchoesApiConfig_v${VERSION}`;
 
 export const SPEECH_COMMANDS: { [key: string]: string[] } = {
     CREATE: ["create artifact", "make echo", "capture this", "remember this"],
@@ -118,9 +120,40 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     enableHnmTrainingMode: false,
     hnmLearningRate: 0.00001,
     hnmWeightDecay: 0.0001,
+    selectedModelId: 'gemini-2.5-flash',
 };
 
 export const GENRE_EDIT_SLIDER_COUNT = 16;
 export const GENRE_EDIT_SLIDER_MAPPING = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 
 export const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(v, max));
+
+export const AI_MODELS: AIModel[] = [
+{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: ModelProvider.GoogleAI },
+{ id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', provider: ModelProvider.GoogleAI },
+{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: ModelProvider.GoogleAI },
+{ id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash-Lite', provider: ModelProvider.GoogleAI },
+{ id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', name: 'Qwen3 Coder 30B A3B', provider: ModelProvider.OpenAI_API },
+{ id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', name: 'Qwen3 Coder 30B A3B', provider: ModelProvider.Ollama },
+{ id: 'gemma3n:e4b', name: 'Gemma 3N E4B', provider: ModelProvider.Ollama },
+{ id: 'gemma3n:e2b', name: 'Gemma 3N E2B', provider: ModelProvider.Ollama },
+{ id: 'qwen3:14b', name: 'Qwen3 14B', provider: ModelProvider.Ollama },
+{ id: 'qwen3:8b', name: 'Qwen3 8B', provider: ModelProvider.Ollama },
+{ id: 'qwen3:4b', name: 'Qwen3 4B', provider: ModelProvider.Ollama },
+{ id: 'qwen3:1.7b', name: 'Qwen3 1.7B', provider: ModelProvider.Ollama },
+{ id: 'qwen3:0.6b', name: 'Qwen3 0.6B', provider: ModelProvider.Ollama },
+{ id: 'onnx-community/gemma-3-1b-it-ONNX', name: 'gemma-3-1b-it-ONNX', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/Qwen3-0.6B-ONNX', name: 'Qwen3-0.6B', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/gemma-3n-E2B-it-ONNX', name: 'Gemma 3N E2B', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/Qwen3-4B-ONNX', name: 'Qwen3-4B', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/Qwen3-1.7B-ONNX', name: 'Qwen3-1.7B', provider: ModelProvider.HuggingFace }
+];
+
+export const STANDARD_TOOL_CALL_SYSTEM_PROMPT = `You have access to a set of tools. To use a tool, you MUST respond with a single, valid JSON object containing the tool name and its arguments, and nothing else. Do not add any other text, explanation, or markdown formatting.
+
+Available tools:
+{{TOOLS_JSON}}
+
+Your response MUST be in the format:
+{"name": "tool_name", "arguments": {"arg1": "value1", "arg2": "value2"}}
+`;

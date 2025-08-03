@@ -1,3 +1,4 @@
+
 export interface MenuSettings {
     playerInfluence: number;
     genreRuleInfluence: number;
@@ -63,6 +64,7 @@ export interface MenuSettings {
     enableHnmTrainingMode: boolean;
     hnmLearningRate: number;
     hnmWeightDecay: number;
+    selectedModelId: string;
 }
 
 export interface GenreEditState {
@@ -148,4 +150,48 @@ export interface HnmState {
     seq_index: number;
     layerWeights: { [key: string]: any[] }; // Array of tf.Tensor
     optim_state: any;
+}
+
+// --- AI Service Types ---
+
+export enum ModelProvider {
+  GoogleAI = 'GoogleAI',
+  OpenAI_API = 'OpenAI_API',
+  Ollama = 'Ollama',
+  HuggingFace = 'HuggingFace',
+}
+
+export interface AIModel {
+  id: string;
+  name: string;
+  provider: ModelProvider;
+}
+
+export interface APIConfig {
+  googleAIAPIKey: string;
+  openAIAPIKey: string;
+  openAIBaseUrl: string;
+  ollamaHost: string;
+}
+
+export interface ToolParameter {
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  description: string;
+  required: boolean;
+  items?: any;
+}
+
+export interface LLMTool {
+  name: string;
+  description: string;
+  parameters: ToolParameter[];
+}
+
+export interface AIResponse {
+  toolCall?: {
+    name: string;
+    arguments: any;
+  } | null;
+  textResponse?: string;
 }
