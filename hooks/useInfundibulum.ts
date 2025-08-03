@@ -13,8 +13,8 @@ import {
     TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, REASONABLE_SHADER_ARTIFACT_CAP, AI_MODELS
 } from '../constants';
 import { HierarchicalSystemV5_TFJS, disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
-import { generateMusicSettings, getGenreAdaptation } from '../lib/ai';
-import type { MenuSettings, GenreEditState, InputState, Artifact, ActiveArtifactInfo, HnmState, HnmLastStepOutputs } from '../types';
+import { generateMusicSettings, getGenreAdaptation, getSoundRefinement } from '../lib/ai';
+import type { MenuSettings, GenreEditState, InputState, Artifact, ActiveArtifactInfo, HnmState, HnmLastStepOutputs, AiContext } from '../types';
 import { ModelProvider } from '../types';
 
 declare var tf: any;
@@ -110,6 +110,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const [loadingInfo, setLoadingInfo] = useState<{ message: string; progress: string; visible: boolean }>({ message: '', progress: '', visible: false });
     const [speechStatus, setSpeechStatus] = useState('Idle');
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isAiConfigModalVisible, setIsAiConfigModalVisible] = useState(false);
     
     // API/Model State
     const [isAiDisabled, setIsAiDisabled] = useState(true);
@@ -132,6 +133,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         audioWorkletNode: null as AudioWorkletNode | null,
         analyserNode: null as AnalyserNode | null,
         micStreamSource: null as MediaStreamAudioSourceNode | null,
+        audioCaptureDestination: null as MediaStreamAudioDestinationNode | null,
         speechController: null as any,
         embeddingPipeline: null as any,
         hnmSystem: null as HierarchicalSystemV5_TFJS | null,
@@ -159,11 +161,13 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     }).current;
     
     const genreAdaptIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const aiCopilotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const genreAdaptTargetRef = useRef<{ psySpectrumPosition: number; darknessModifier: number }>({ 
         psySpectrumPosition: DEFAULT_MENU_SETTINGS.psySpectrumPosition, 
         darknessModifier: DEFAULT_MENU_SETTINGS.darknessModifier 
     });
     const isAdaptingRef = useRef(false);
+    const isCopilotThinkingRef = useRef(false);
     const menuSettingsRef = useRef(menuSettings);
     useEffect(() => { menuSettingsRef.current = menuSettings; }, [menuSettings]);
 
@@ -174,27 +178,23 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             setIsAiDisabled(true);
             return;
         }
-
-        const hasEnv = typeof process !== 'undefined' && process.env;
-
-        let isEnabled = false;
+        
+        let credentialsMet = false;
         switch (selectedModel.provider) {
             case ModelProvider.GoogleAI:
-                isEnabled = !!menuSettings.googleApiKey || (hasEnv && !!process.env.API_KEY);
+                credentialsMet = !!(menuSettings.googleApiKey || process.env.API_KEY);
                 break;
             case ModelProvider.OpenAI_API:
-                const keyOK = !!menuSettings.openAiApiKey || (hasEnv && !!process.env.OPENAI_API_KEY);
-                const urlOK = !!menuSettings.openAiBaseUrl || (hasEnv && !!process.env.OPENAI_BASE_URL);
-                isEnabled = keyOK && urlOK;
+                credentialsMet = !!((menuSettings.openAiApiKey || process.env.OPENAI_API_KEY) && (menuSettings.openAiBaseUrl || process.env.OPENAI_BASE_URL));
                 break;
             case ModelProvider.Ollama:
-                isEnabled = !!menuSettings.ollamaHost || (hasEnv && !!process.env.OLLAMA_HOST);
+                credentialsMet = !!(menuSettings.ollamaHost || process.env.OLLAMA_HOST);
                 break;
             case ModelProvider.HuggingFace:
-                isEnabled = true; // Runs in browser, always available
+                credentialsMet = true; // Always available
                 break;
         }
-        setIsAiDisabled(!isEnabled);
+        setIsAiDisabled(!credentialsMet);
     }, [menuSettings.selectedModelId, menuSettings.googleApiKey, menuSettings.openAiApiKey, menuSettings.openAiBaseUrl, menuSettings.ollamaHost]);
     
     // UI Callbacks
@@ -217,11 +217,133 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const showLoading = useCallback((visible: boolean, message: string = '', progress: string = '') => {
         setLoadingInfo({ visible, message, progress });
     }, []);
+
+    const toggleAiConfigModal = useCallback((forceState?: boolean) => {
+        setIsAiConfigModalVisible(prev => typeof forceState === 'boolean' ? forceState : !prev);
+    }, []);
+
+    const handleAiConfigSubmit = useCallback((newConfig: Partial<MenuSettings>) => {
+        setMenuSettings(prev => ({...prev, ...newConfig}));
+        toggleAiConfigModal(false);
+    }, [toggleAiConfigModal]);
     
     // --- AI Status and Settings Callbacks ---
     const handleAiProgress = useCallback((logMessage: string) => {
         setMenuSettings(prev => ({...prev, aiDebugLog: logMessage}));
     }, []);
+    
+    const captureAudioClip = useCallback((durationMs: number): Promise<{ mimeType: string, data: string } | null> => {
+        return new Promise((resolve) => {
+            const { audioCaptureDestination } = appState;
+            if (!audioCaptureDestination?.stream || !audioCaptureDestination.stream.active) {
+                console.error("Audio capture stream is not available or inactive.");
+                resolve(null);
+                return;
+            }
+
+            const options = { mimeType: 'audio/webm;codecs=opus' };
+            try {
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                     console.warn(`${options.mimeType} is not supported. Using default.`);
+                }
+                const mediaRecorder = new MediaRecorder(audioCaptureDestination.stream, MediaRecorder.isTypeSupported(options.mimeType) ? options : undefined);
+                const audioChunks: Blob[] = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    if (audioChunks.length === 0) {
+                        console.error("No audio data was recorded.");
+                        resolve(null);
+                        return;
+                    }
+                    const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64data = reader.result as string;
+                        const parts = base64data.split(',');
+                        if (parts.length < 2) { resolve(null); return; }
+                        const mime = parts[0].split(':')[1].split(';')[0];
+                        const data = parts[1];
+                        resolve({ mimeType: mime, data });
+                    };
+                    reader.onerror = (e) => { console.error("FileReader error:", e); resolve(null); };
+                    reader.readAsDataURL(audioBlob);
+                };
+                
+                mediaRecorder.onerror = (e) => { console.error("MediaRecorder error:", e); resolve(null); }
+
+                mediaRecorder.start();
+                setTimeout(() => {
+                    if (mediaRecorder.state === "recording") {
+                        mediaRecorder.stop();
+                    }
+                }, durationMs);
+
+            } catch(e) {
+                console.error("Failed to create MediaRecorder:", e);
+                resolve(null);
+            }
+        });
+    }, [appState]);
+
+    const handleCopilotRefine = useCallback(async () => {
+        if (isCopilotThinkingRef.current || !appState.inputState || isAiDisabled) return;
+        
+        isCopilotThinkingRef.current = true;
+        
+        try {
+            const selectedModel = AI_MODELS.find(m => m.id === menuSettingsRef.current.selectedModelId);
+            if (!selectedModel) throw new Error("No AI model selected for Co-pilot.");
+
+            let audioClip: { mimeType: string; data: string } | null = null;
+            if (selectedModel.audioSupport) {
+                showLoading(true, 'Recording audio...');
+                audioClip = await captureAudioClip(5000);
+                if (!audioClip) showWarning("Failed to record audio clip, using fallback.", 3000);
+            }
+            
+            showLoading(true, 'Co-pilot is thinking...');
+            handleAiProgress("Co-pilot: Refining sound...");
+            
+            const { aiDebugLog, aiCopilotThought, ...currentRelevantSettings } = menuSettingsRef.current;
+            const context: AiContext = {
+                mic: appState.inputState.mic,
+                motion: appState.inputState.accelerometer,
+                hnmAnomaly: appState.lastL0Anomaly,
+                currentSettings: currentRelevantSettings,
+                audioClip: audioClip,
+            };
+
+            const result = await getSoundRefinement(context, selectedModel, (msg) => handleAiProgress(`Co-pilot: ${msg}`), menuSettingsRef.current);
+            
+            if (result) {
+                const { thought, ...paramsToUpdate } = result;
+                if (thought) {
+                    handleMenuSettingChange('aiCopilotThought', thought as string);
+                }
+                if (Object.keys(paramsToUpdate).length > 0) {
+                     setMenuSettings(prev => ({...prev, ...paramsToUpdate, aiCallCount: (prev.aiCallCount || 0) + 1}));
+                }
+                handleAiProgress("Co-pilot: Refinement applied.");
+            } else {
+                handleAiProgress("Co-pilot: No refinement suggested.");
+                handleMenuSettingChange('aiCopilotThought', 'No changes suggested.');
+            }
+        } catch(e) {
+            const errorMsg = (e as Error).message;
+            console.error("Co-pilot refinement failed:", e);
+            showWarning(`Co-pilot failed: ${errorMsg}`, 3000);
+            handleAiProgress(`Co-pilot Error: ${errorMsg.substring(0, 40)}...`);
+            handleMenuSettingChange('aiCopilotThought', 'Error during refinement.');
+        } finally {
+            isCopilotThinkingRef.current = false;
+            showLoading(false);
+        }
+    }, [isAiDisabled, appState.inputState, appState.lastL0Anomaly, handleAiProgress, showWarning, showLoading, captureAudioClip]);
+
 
     // Genre & Settings Callbacks
     const updateCurrentGenreRuleVector = useCallback(() => {
@@ -256,15 +378,41 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
     const handleMenuSettingChange = useCallback(<K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => {
         setMenuSettings(prev => {
-            const newState = { ...prev, [key]: value };
+            // Prevent re-render if value is the same, breaking the GUI update loop
+            if (prev[key] === value) {
+                return prev;
+            }
+
+            let newState = { ...prev, [key]: value };
 
             if (key === 'enableSpeechCommands') {
                 if (value) appState.speechController?.startListening();
                 else appState.speechController?.stopListening();
             }
+
+            if (key === 'enableAiCopilotMode') {
+                if (value) {
+                    if (isAiDisabled) {
+                         showWarning("AI Co-pilot requires a configured AI model.", 5000);
+                        return { ...newState, enableAiCopilotMode: false }; 
+                    }
+                    if (aiCopilotIntervalRef.current) clearInterval(aiCopilotIntervalRef.current);
+                    handleCopilotRefine(); // immediate refine
+                    aiCopilotIntervalRef.current = setInterval(handleCopilotRefine, 15000);
+                    newState.enableGenreAdaptMode = false;
+                    newState.showAiMuse = false;
+                    newState.aiCopilotThought = "Co-pilot activated. Analyzing...";
+                } else {
+                    if (aiCopilotIntervalRef.current) {
+                        clearInterval(aiCopilotIntervalRef.current);
+                        aiCopilotIntervalRef.current = null;
+                    }
+                    newState.aiCopilotThought = "AI Co-pilot is idle.";
+                }
+            }
             
             if (key === 'enableGenreAdaptMode') {
-                if (value) {
+                 if (value) {
                     if (isAiDisabled) {
                         showWarning("Genre-Adapt requires a configured AI model.", 5000);
                         return { ...newState, enableGenreAdaptMode: false }; 
@@ -275,19 +423,29 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                         if (isAdaptingRef.current || !appState.artifactManager || !appState.inputState || isAiDisabled) return;
 
                         isAdaptingRef.current = true;
-                        handleAiProgress("Adapt: Analyzing context...");
+                        
                         try {
                             const selectedModel = AI_MODELS.find(m => m.id === menuSettingsRef.current.selectedModelId);
                             if (!selectedModel) return;
 
-                            const context = {
+                            let audioClip: { mimeType: string, data: string } | null = null;
+                            if (selectedModel.audioSupport) {
+                                showLoading(true, 'Recording for Genre-Adapt...');
+                                audioClip = await captureAudioClip(5000);
+                            }
+                            handleAiProgress("Adapt: Analyzing context...");
+                            showLoading(true, 'Adapting genre...');
+
+
+                            const context: AiContext = {
                                 mic: appState.inputState.mic,
                                 motion: appState.inputState.accelerometer,
-                                recentArtifactTags: appState.artifactManager.artifacts.slice(-3).map((a: Artifact) => a.featureTags),
-                                currentBpm: menuSettingsRef.current.masterBPM
+                                hnmAnomaly: appState.lastL0Anomaly,
+                                currentSettings: { masterBPM: menuSettingsRef.current.masterBPM },
+                                audioClip,
                             };
 
-                            const result = await getGenreAdaptation(context, selectedModel, menuSettingsRef.current, (msg) => handleAiProgress(`Adapt: ${msg}`));
+                            const result = await getGenreAdaptation(context, selectedModel, (msg) => handleAiProgress(`Adapt: ${msg}`), menuSettingsRef.current);
                             if (result) {
                                 genreAdaptTargetRef.current = result;
                                 setMenuSettings(prev => ({...prev, aiCallCount: (prev.aiCallCount || 0) + 1, aiDebugLog: 'Adapt: Success'}));
@@ -301,10 +459,13 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                             handleAiProgress(`Adapt Error: ${errorMsg.substring(0, 40)}...`);
                         } finally {
                             isAdaptingRef.current = false;
+                            showLoading(false);
                         }
                     };
                     adaptFn(); 
                     genreAdaptIntervalRef.current = setInterval(adaptFn, 20000);
+                    newState.enableAiCopilotMode = false;
+                    newState.showAiMuse = false;
                 } else {
                     if (genreAdaptIntervalRef.current) {
                         clearInterval(genreAdaptIntervalRef.current);
@@ -315,7 +476,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             }
             return newState;
         });
-    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, isAiDisabled, handleAiProgress]);
+    }, [appState.speechController, appState.artifactManager, appState.inputState, showWarning, isAiDisabled, handleAiProgress, handleCopilotRefine, captureAudioClip]);
 
     const handleAiGenerate = useCallback(async (prompt: string) => {
         if (isAiDisabled) {
@@ -333,7 +494,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
             if (!selectedModel) throw new Error("No valid AI model selected.");
             
-            const newSettings = await generateMusicSettings(prompt, selectedModel, menuSettings, (msg) => handleAiProgress(`Muse: ${msg}`));
+            const newSettings = await generateMusicSettings(prompt, selectedModel, (msg) => handleAiProgress(`Muse: ${msg}`), menuSettings);
             setMenuSettings(prev => ({
                 ...prev, 
                 ...newSettings, 
@@ -357,7 +518,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     }, [menuSettings, isInitialized, updateCurrentGenreRuleVector, saveMenuSettings]);
 
     const resetMenuSettingsToDefault = useCallback(() => {
-        const { selectedModelId, ...defaults } = DEFAULT_MENU_SETTINGS;
+        const { selectedModelId, googleApiKey, openAiApiKey, openAiBaseUrl, ollamaHost, ...defaults } = DEFAULT_MENU_SETTINGS;
         setMenuSettings(prev => ({ ...prev, ...defaults }));
         showWarning("Menu settings reset to default.", 2000);
     }, [showWarning]);
@@ -687,6 +848,12 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 await audioContext.audioWorklet.addModule(workletURL);
                 appState.audioWorkletNode = new AudioWorkletNode(audioContext, 'generative-processor', { outputChannelCount:[2], parameterData:{ masterLevel: 0.7 } });
                 appState.audioWorkletNode.connect(masterGain);
+                
+                // For AI audio analysis
+                const audioCaptureDestination = audioContext.createMediaStreamDestination();
+                appState.audioWorkletNode.connect(audioCaptureDestination);
+                appState.audioCaptureDestination = audioCaptureDestination;
+
                 URL.revokeObjectURL(workletURL);
                 return true;
             } catch (err) {
@@ -1003,6 +1170,9 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             if (genreAdaptIntervalRef.current) {
                 clearInterval(genreAdaptIntervalRef.current);
             }
+            if(aiCopilotIntervalRef.current) {
+                clearInterval(aiCopilotIntervalRef.current);
+            }
         };
     }, []);
 
@@ -1022,5 +1192,9 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         loadSelectedGenreToSliders,
         saveSlidersToSelectedGenre,
         handleAiGenerate,
+        isAiConfigModalVisible,
+        toggleAiConfigModal,
+        handleAiConfigSubmit,
+        handleCopilotRefine,
     };
 };

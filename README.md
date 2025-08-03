@@ -23,6 +23,7 @@ The application's core is a sophisticated, multi-layered AI system inspired by c
     *   **Function:** The high-level, strategic "brain" of the system. It can be powered by various local or cloud-based Large Language Models.
     *   **Role:** It analyzes rich context from the HNM and the system's memory to provide intelligent guidance.
         *   **AI Muse:** Generates completely new sound designs from descriptive text prompts.
+        *   **AI Co-pilot Mode:** A new iterative mode where the AI "listens" to the current soundscape and makes small, targeted adjustments to improve its musicality and balance over time.
         *   **Genre-Adapt Mode:** Subtly steers the musical genre based on the user's activity and ambient environment.
 
 3.  **Embeddings (RAG) - The Associative Memory:**
@@ -34,9 +35,9 @@ The application's core is a sophisticated, multi-layered AI system inspired by c
 *   **Deeply Interactive:** Your every move and the sound of your environment directly influence the generative art.
 *   **Flexible AI Backend:** Supports multiple LLM providers, including Google Gemini, OpenAI-compatible APIs, local Ollama servers, and in-browser HuggingFace models.
 *   **AI Muse:** Use a text prompt (e.g., "dreamy ambient soundscape with a slow, pulsing beat") to have the AI completely reconfigure the synthesizer.
+*   **AI Co-pilot Mode:** An iterative mode where the AI actively listens and refines the sound, acting as a collaborative partner.
 *   **Genre-Adapt Mode:** An autonomous mode where the AI listens to the environment and watches your actions, subtly shifting the musical style to match the vibe.
 *   **Resonant Artifacts (Memory):** Capture your favorite moments. The system learns from what you save and uses these "memories" to inform its future creations.
-*   **HRM Training Mode (Experimental):** Based on the HRM paper, this mode allows the core HNM to learn and adapt its internal weights in real-time, personalizing its response to you.
 
 ## Tech Stack
 
@@ -60,19 +61,19 @@ The application's core is a sophisticated, multi-layered AI system inspired by c
     ```bash
     npm install
     ```
-3.  Run the development server:
+3.  **Configure AI Providers:**
+    *   The application is designed to use API keys set as environment variables (`process.env.API_KEY` for Google, etc.). This is the standard for deployment.
+    *   For local development or simple client-side use, you can configure providers directly in the app.
+    *   Open the settings panel (top-right), go to the "AI" folder, and click **"Configure AI..."**.
+    *   A modal window will appear where you can enter your keys and host URLs. These are saved in your browser's local storage and used as a fallback if environment variables aren't found.
+
+4.  Run the development server:
     ```bash
-    npm run dev
+    npm run dev # Or your preferred script
     ```
-4.  **Configure the AI Provider:**
-    *   AI provider credentials are set directly within the application's GUI.
-    *   Open the settings panel in the top-right corner.
-    *   Open the "AI Configuration" folder.
-    *   Enter your credentials in the respective fields:
-        *   **Google API Key:** For `GoogleAI` models.
-        *   **OpenAI API Key & Base URL:** For `OpenAI_API` models.
-        *   **Ollama Host:** For `Ollama` models (e.g., `http://localhost:11434`).
-    *   **For HuggingFace:** No configuration is needed as the models run directly in the browser.
-    *   Settings are saved to your browser's local storage automatically.
-    *   After configuring, select your desired model from the "AI Model" dropdown in the "AI" folder. The AI features will now be enabled for that model.
-    *   **Environment Variable Fallback:** If a setting is left blank in the GUI, the application will attempt to use a corresponding environment variable (`API_KEY` for Google, `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OLLAMA_HOST`) if available. GUI settings always take priority.
+
+5.  **Select the AI Model in the App:**
+    *   Once the app is running, open the settings panel.
+    *   In the "AI" folder, select your desired model from the "AI Model" dropdown.
+    *   If the required credentials for that model are set, the AI features (Muse, Co-pilot, etc.) will be enabled.
+    *   **For HuggingFace:** No configuration is needed as these models run directly in the browser.

@@ -1,6 +1,6 @@
 import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider } from './types';
 
-export const VERSION = "0.9.4-AiMonitor";
+export const VERSION = "0.9.8-AiCopilot";
 export const USE_DEBUG = true;
 export const TARGET_FPS = 55;
 export const STATE_VECTOR_SIZE = 64;
@@ -115,6 +115,8 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     enableSpeechCommands: true,
     enableTapReset: true,
     enableGenreAdaptMode: false,
+    enableAiCopilotMode: false,
+    aiCopilotThought: 'AI Co-pilot is idle.',
     selectedModelId: 'gemini-2.5-flash',
     googleApiKey: '',
     openAiApiKey: '',
@@ -122,7 +124,8 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     ollamaHost: '',
     showAiMuse: false,
     aiCallCount: 0,
-    aiDebugLog: 'Idle',
+    aiDebugLog: 'AI Idle. Configure & select a model.',
+    showAiDebugLog: false,
 };
 
 export const GENRE_EDIT_SLIDER_COUNT = 16;
@@ -131,10 +134,10 @@ export const GENRE_EDIT_SLIDER_MAPPING = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 
 export const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(v, max));
 
 export const AI_MODELS: AIModel[] = [
-{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (GoogleAI)', provider: ModelProvider.GoogleAI },
-{ id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (GoogleAI)', provider: ModelProvider.GoogleAI },
-{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (GoogleAI)', provider: ModelProvider.GoogleAI },
-{ id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash-Lite (GoogleAI)', provider: ModelProvider.GoogleAI },
+{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash-Lite (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
 { id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', name: 'Qwen3 Coder 30B A3B (OpenAI_API)', provider: ModelProvider.OpenAI_API },
 { id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', name: 'Qwen3 Coder 30B A3B (Ollama)', provider: ModelProvider.Ollama },
 { id: 'gemma3n:e4b', name: 'Gemma 3N E4B (Ollama)', provider: ModelProvider.Ollama },

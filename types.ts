@@ -60,6 +60,8 @@ export interface MenuSettings {
     enableSpeechCommands: boolean;
     enableTapReset: boolean;
     enableGenreAdaptMode: boolean;
+    enableAiCopilotMode: boolean;
+    aiCopilotThought: string;
     selectedModelId: string;
     googleApiKey: string;
     openAiApiKey: string;
@@ -68,6 +70,7 @@ export interface MenuSettings {
     showAiMuse: boolean;
     aiCallCount: number;
     aiDebugLog: string;
+    showAiDebugLog: boolean;
 }
 
 export interface GenreEditState {
@@ -168,6 +171,7 @@ export interface AIModel {
   id: string;
   name: string;
   provider: ModelProvider;
+  audioSupport?: boolean;
 }
 
 export interface ToolParameter {
@@ -190,4 +194,12 @@ export interface AIResponse {
     arguments: any;
   } | null;
   textResponse?: string;
+}
+
+export interface AiContext {
+    mic: InputState['mic'];
+    motion: InputState['accelerometer'];
+    hnmAnomaly: number;
+    currentSettings: Partial<MenuSettings>;
+    audioClip?: { mimeType: string, data: string } | null;
 }

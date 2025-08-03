@@ -13,6 +13,7 @@ interface GuiControllerProps {
     loadSelectedGenreToSliders: () => void;
     saveSlidersToSelectedGenre: () => void;
     isDisabled: boolean;
+    toggleAiConfigModal: () => void;
 }
 
 const GuiController: React.FC<GuiControllerProps> = ({
@@ -25,11 +26,12 @@ const GuiController: React.FC<GuiControllerProps> = ({
     loadSelectedGenreToSliders,
     saveSlidersToSelectedGenre,
     isDisabled,
+    toggleAiConfigModal,
 }) => {
     const guiRef = useRef<GUI | null>(null);
     const controlsRef = useRef<any>({});
-    const propsRef = useRef({ onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre });
-    propsRef.current = { onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre };
+    const propsRef = useRef({ onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal });
+    propsRef.current = { onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal };
 
 
     useEffect(() => {
@@ -48,16 +50,19 @@ const GuiController: React.FC<GuiControllerProps> = ({
             return acc;
         }, {} as Record<string, string>);
         
-        aiFolder.add(menuSettings, 'selectedModelId', modelOptions).name('AI Model').onChange(value => propsRef.current.onMenuSettingChange('selectedModelId', value));
-        aiFolder.add(menuSettings, 'showAiMuse').name('Show AI Muse').onChange(value => propsRef.current.onMenuSettingChange('showAiMuse', value));
-        controlsRef.current.genreAdaptToggle = aiFolder.add(menuSettings, 'enableGenreAdaptMode').name('Genre-Adapt Mode').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableGenreAdaptMode', value));
-        aiFolder.add(menuSettings, 'aiCallCount').name('API Calls').listen().disable();
-        aiFolder.add(menuSettings, 'aiDebugLog').name('AI Status').listen().disable();
+        const aiConfigFolder = aiFolder.addFolder('Configuration').close();
+        aiConfigFolder.add(menuSettings, 'selectedModelId', modelOptions).name('AI Model').onChange(value => propsRef.current.onMenuSettingChange('selectedModelId', value));
+        aiConfigFolder.add({ configure: () => propsRef.current.toggleAiConfigModal() }, 'configure').name('Configure AI...');
+        aiConfigFolder.add(menuSettings, 'aiCallCount').name('API Calls').listen().disable();
         
-        aiFolder.add(menuSettings, 'googleApiKey').name('Google API Key').onChange(value => propsRef.current.onMenuSettingChange('googleApiKey', value)).listen();
-        aiFolder.add(menuSettings, 'openAiApiKey').name('OpenAI API Key').onChange(value => propsRef.current.onMenuSettingChange('openAiApiKey', value)).listen();
-        aiFolder.add(menuSettings, 'openAiBaseUrl').name('OpenAI Base URL').onChange(value => propsRef.current.onMenuSettingChange('openAiBaseUrl', value)).listen();
-        aiFolder.add(menuSettings, 'ollamaHost').name('Ollama Host').onChange(value => propsRef.current.onMenuSettingChange('ollamaHost', value)).listen();
+        const aiModesFolder = aiFolder.addFolder('Modes').open();
+        controlsRef.current.aiMuseToggle = aiModesFolder.add(menuSettings, 'showAiMuse').name('AI Muse').onChange(value => propsRef.current.onMenuSettingChange('showAiMuse', value));
+        controlsRef.current.genreAdaptToggle = aiModesFolder.add(menuSettings, 'enableGenreAdaptMode').name('Genre-Adapt').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableGenreAdaptMode', value));
+        controlsRef.current.aiCopilotToggle = aiModesFolder.add(menuSettings, 'enableAiCopilotMode').name('AI Co-pilot').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableAiCopilotMode', value));
+        
+        const aiDebugFolder = aiFolder.addFolder('Debug').close();
+        aiDebugFolder.add(menuSettings, 'showAiDebugLog').name('Show Debug Log').onChange(value => propsRef.current.onMenuSettingChange('showAiDebugLog', value));
+
 
         const systemFolder = gui.addFolder('System & State').open();
         systemFolder.add(menuSettings, 'enableSpeechCommands').name('Enable Speech').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableSpeechCommands', value));
@@ -76,14 +81,14 @@ const GuiController: React.FC<GuiControllerProps> = ({
         controlsRef.current.darkController = genreSelectFolder.add(menuSettings, 'darknessModifier', 0, 1, 0.01).name('Darkness Modifier').onChange((v:number) => propsRef.current.onMenuSettingChange('darknessModifier', v));
         genreSelectFolder.add(menuSettings, 'masterBPM', 60, 220, 1).name('Master BPM').onChange((v:number) => propsRef.current.onMenuSettingChange('masterBPM', v));
 
-        const kickFolder = gui.addFolder('Kick Drum').open();
+        const kickFolder = gui.addFolder('Kick Drum').close();
         kickFolder.add(menuSettings, 'kickTune', 0, 1, 0.01).name('Tune').onChange((v:number) => propsRef.current.onMenuSettingChange('kickTune', v));
         kickFolder.add(menuSettings, 'kickPunch', 0, 1, 0.01).name('Punch').onChange((v:number) => propsRef.current.onMenuSettingChange('kickPunch', v));
         kickFolder.add(menuSettings, 'kickDecay', 0.01, 1, 0.01).name('Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('kickDecay', v));
         kickFolder.add(menuSettings, 'kickClick', 0, 1, 0.01).name('Click').onChange((v:number) => propsRef.current.onMenuSettingChange('kickClick', v));
         kickFolder.add(menuSettings, 'kickLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('kickLevel', v));
 
-        const bassFolder = gui.addFolder('Bass').open();
+        const bassFolder = gui.addFolder('Bass').close();
         bassFolder.add(menuSettings, 'bassOscType', { Saw: 0, Square: 1 }).name('Osc Type').onChange((v:number) => propsRef.current.onMenuSettingChange('bassOscType', Number(v)));
         bassFolder.add(menuSettings, 'bassOctave', 0, 1, 0.01).name('Octave').onChange((v:number) => propsRef.current.onMenuSettingChange('bassOctave', v));
         bassFolder.add(menuSettings, 'bassCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v:number) => propsRef.current.onMenuSettingChange('bassCutoff', v));
@@ -95,7 +100,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         bassFolder.add(menuSettings, 'bassFilterLfoDepth', 0, 1, 0.01).name('Filt LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('bassFilterLfoDepth', v));
         bassFolder.add(menuSettings, 'bassLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('bassLevel', v));
         
-        const leadFolder = gui.addFolder('Lead Synth').open();
+        const leadFolder = gui.addFolder('Lead Synth').close();
         leadFolder.add(menuSettings, 'leadOscType', { Saw:0, Square:1, FMish:2 }).name('Osc Type').onChange((v:number) => propsRef.current.onMenuSettingChange('leadOscType', Number(v)));
         leadFolder.add(menuSettings, 'leadOctave', 0, 1, 0.01).name('Octave').onChange((v: number) => propsRef.current.onMenuSettingChange('leadOctave', v));
         leadFolder.add(menuSettings, 'leadPW', 0.05, 0.95, 0.01).name('Pulse Width').onChange((v: number) => propsRef.current.onMenuSettingChange('leadPW', v));
@@ -110,14 +115,14 @@ const GuiController: React.FC<GuiControllerProps> = ({
         leadFolder.add(menuSettings, 'leadFilterLfoDepth', 0, 1, 0.01).name('Filt LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('leadFilterLfoDepth', v));
         leadFolder.add(menuSettings, 'leadLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('leadLevel', v));
 
-        const hatsFolder = gui.addFolder('Hi-Hats').open();
+        const hatsFolder = gui.addFolder('Hi-Hats').close();
         hatsFolder.add(menuSettings, 'hatClosedDecay', 0.005, 0.2, 0.001).name('Closed Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('hatClosedDecay', v));
         hatsFolder.add(menuSettings, 'hatOpenDecay', 0.05, 0.5, 0.005).name('Open Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('hatOpenDecay', v));
         hatsFolder.add(menuSettings, 'hatHpfCutoff', 0.1, 1, 0.01).name('HPF Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('hatHpfCutoff', v));
         hatsFolder.add(menuSettings, 'hatTone', 0, 1, 0.01).name('Tone Adjust').onChange((v: number) => propsRef.current.onMenuSettingChange('hatTone', v));
         hatsFolder.add(menuSettings, 'hatLevel', 0, 1, 0.01).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('hatLevel', v));
 
-        const snareFolder = gui.addFolder('Snare').open();
+        const snareFolder = gui.addFolder('Snare').close();
         snareFolder.add(menuSettings, 'snareNoiseLevel', 0, 1, 0.01).name('Noise Level').onChange((v: number) => propsRef.current.onMenuSettingChange('snareNoiseLevel', v));
         snareFolder.add(menuSettings, 'snareNoiseDecay', 0.01, 0.3, 0.005).name('Noise Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('snareNoiseDecay', v));
         snareFolder.add(menuSettings, 'snareBodyTune', 0, 1, 0.01).name('Body Tune').onChange((v: number) => propsRef.current.onMenuSettingChange('snareBodyTune', v));
@@ -125,7 +130,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         snareFolder.add(menuSettings, 'snareBodyLevel', 0, 1, 0.01).name('Body Level').onChange((v: number) => propsRef.current.onMenuSettingChange('snareBodyLevel', v));
         snareFolder.add(menuSettings, 'snareLevel', 0, 1, 0.01).name('Master Level').onChange((v: number) => propsRef.current.onMenuSettingChange('snareLevel', v));
         
-        const noiseFxFolder = gui.addFolder('Noise FX').open();
+        const noiseFxFolder = gui.addFolder('Noise FX').close();
         noiseFxFolder.add(menuSettings, 'noiseFxFiltType', { LP:0, HP:1, BP:2 }).name('Filter Type').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxFiltType', Number(v)));
         noiseFxFolder.add(menuSettings, 'noiseFxCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxCutoff', v));
         noiseFxFolder.add(menuSettings, 'noiseFxReso', 0, 1, 0.01).name('Resonance').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxReso', v));
@@ -133,7 +138,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         noiseFxFolder.add(menuSettings, 'noiseFxLfoDepth', 0, 1, 0.01).name('LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxLfoDepth', v));
         noiseFxFolder.add(menuSettings, 'noiseFxLevel', 0, 1, 0.005).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxLevel', v));
 
-        const fxFolder = gui.addFolder('FX Bus').open();
+        const fxFolder = gui.addFolder('FX Bus').close();
         fxFolder.add(menuSettings, 'delayTimeMode', { '1/16':0, '1/8':1, '3/16':2, '1/4':3, '1/2':4 }).name('Delay Time').onChange((v: number) => propsRef.current.onMenuSettingChange('delayTimeMode', Number(v)));
         fxFolder.add(menuSettings, 'delayFeedback', 0, 0.98, 0.01).name('Delay Feedback').onChange((v: number) => propsRef.current.onMenuSettingChange('delayFeedback', v));
         fxFolder.add(menuSettings, 'delayMix', 0, 1, 0.01).name('Delay Mix').onChange((v:number) => propsRef.current.onMenuSettingChange('delayMix', v));
@@ -141,7 +146,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         fxFolder.add(menuSettings, 'reverbDamp', 0, 1, 0.01).name('Reverb Damp').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbDamp', v));
         fxFolder.add(menuSettings, 'reverbMix', 0, 1, 0.01).name('Reverb Mix').onChange((v:number) => propsRef.current.onMenuSettingChange('reverbMix', v));
 
-        const genreEditFolder = gui.addFolder('Genre Editor (HNM Targets)').open();
+        const genreEditFolder = gui.addFolder('Genre Editor (HNM Targets)').close();
         genreEditFolder.add(genreEditState, 'genreEdit_Selected', Object.keys(GENRE_TARGET_STATES)).name('Edit Genre').onChange(value => {
             propsRef.current.onGenreEditChange('genreEdit_Selected', value);
             propsRef.current.loadSelectedGenreToSliders();
@@ -170,21 +175,34 @@ const GuiController: React.FC<GuiControllerProps> = ({
             }
         };
 
-        setControllerDisabled(controlsRef.current.psyController, menuSettings.enableGenreAdaptMode);
-        setControllerDisabled(controlsRef.current.darkController, menuSettings.enableGenreAdaptMode);
-        setControllerDisabled(controlsRef.current.genreAdaptToggle, isDisabled);
+        const isGenreAdaptActive = menuSettings.enableGenreAdaptMode;
+        const isCopilotActive = menuSettings.enableAiCopilotMode;
+
+        setControllerDisabled(controlsRef.current.psyController, isGenreAdaptActive || isCopilotActive);
+        setControllerDisabled(controlsRef.current.darkController, isGenreAdaptActive || isCopilotActive);
         
-    }, [menuSettings.enableGenreAdaptMode, isDisabled]);
+        // Disable other AI modes if one is active
+        setControllerDisabled(controlsRef.current.aiMuseToggle, isGenreAdaptActive || isCopilotActive);
+        setControllerDisabled(controlsRef.current.genreAdaptToggle, isDisabled || isCopilotActive);
+        setControllerDisabled(controlsRef.current.aiCopilotToggle, isDisabled || isGenreAdaptActive);
+
+    }, [menuSettings.enableGenreAdaptMode, menuSettings.enableAiCopilotMode, isDisabled]);
 
     // Update GUI when state props change from outside
     useEffect(() => {
         if (!guiRef.current) return;
         guiRef.current.controllersRecursive().forEach(controller => {
+            // Check if controller property exists in menuSettings before updating
             if (Object.prototype.hasOwnProperty.call(menuSettings, controller.property)) {
-                controller.setValue(menuSettings[controller.property as keyof MenuSettings]);
+                // Check if the current value is different to prevent redundant updates
+                if (controller.object[controller.property] !== menuSettings[controller.property as keyof MenuSettings]) {
+                    controller.setValue(menuSettings[controller.property as keyof MenuSettings]);
+                }
             }
             if (Object.prototype.hasOwnProperty.call(genreEditState, controller.property)) {
-                controller.setValue(genreEditState[controller.property as keyof GenreEditState]);
+                 if (controller.object[controller.property] !== genreEditState[controller.property as keyof GenreEditState]) {
+                    controller.setValue(genreEditState[controller.property as keyof GenreEditState]);
+                }
             }
         });
     }, [menuSettings, genreEditState]);
