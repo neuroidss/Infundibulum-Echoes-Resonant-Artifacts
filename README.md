@@ -1,7 +1,5 @@
 # Infundibulum Echoes - An AI Consciousness Tool
 
-**This project is submitted to the [Google Gemma 3n Impact Challenge](https://www.kaggle.com/competitions/google-gemma-3n-hackathon).**
-
 *Infundibulum Echoes* is an experimental tool for AI-assisted self-exploration. It uses a private, on-device hybrid AI to create a synergistic bio-feedback loop, translating your body's motion and environment into intense, generative audio-visualscapes. This is not about simple wellness, but about exploring the psyche and expanding perception.
 
 > **Live Demo:** https://neuroidss.github.io/Infundibulum-Echoes-Resonant-Artifacts/
