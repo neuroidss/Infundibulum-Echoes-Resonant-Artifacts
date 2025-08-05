@@ -24,7 +24,6 @@ const fragmentShader = (MAX_ARTIFACTS_SHADER: number) => `
     varying vec2 vUv;
     #define PI 3.14159265359
     #define STATE_VEC_SIZE ${STATE_VECTOR_SIZE}
-    float fract(float n){ return n - floor(n); }
     float hash1(float n){ return fract(sin(n)*43758.5453); }
     vec2 hash2(vec2 p){ p=vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))); return -1.+2.*fract(sin(p)*43758.5453); }
     float noise(vec2 x){ vec2 p=floor(x); vec2 f=fract(x); f=f*f*(3.-2.*f); float n=p.x+p.y*57.; return mix(mix(hash1(n),hash1(n+1.),f.x),mix(hash1(n+57.),hash1(n+58.),f.x),f.y); }

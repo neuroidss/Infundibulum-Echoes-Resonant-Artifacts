@@ -44,7 +44,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         const systemFolder = gui.addFolder('System & State');
         systemFolder.add(menuSettings, 'enableSpeechCommands').name('Enable Speech').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableSpeechCommands', value));
         systemFolder.add(menuSettings, 'enableTapReset').name('Enable Tap Reset').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableTapReset', value));
-        systemFolder.add(menuSettings, 'enableGenreAdaptMode').name('Genre-Adapt Mode').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableGenreAdaptMode', value));
+        systemFolder.add(menuSettings, 'enablePsyCoreModulatorMode').name('Psy-Core Modulator').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enablePsyCoreModulatorMode', value));
         systemFolder.add({ reset: () => propsRef.current.resetMenuToDefaults() }, 'reset').name('Reset Menu Defaults');
         systemFolder.add({ reset: () => propsRef.current.resetHnmRag() }, 'reset').name('Reset HNM/RAG State');
 
@@ -149,7 +149,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         const psyController = guiRef.current.controllersRecursive().find(c => c.property === 'psySpectrumPosition');
         const darkController = guiRef.current.controllersRecursive().find(c => c.property === 'darknessModifier');
 
-        const isDisabled = menuSettings.enableGenreAdaptMode;
+        const isDisabled = menuSettings.enablePsyCoreModulatorMode;
 
         if (psyController) {
             psyController.domElement.style.pointerEvents = isDisabled ? 'none' : 'auto';
@@ -160,7 +160,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
             (darkController.domElement.parentElement as HTMLElement).style.opacity = isDisabled ? '0.5' : '1';
         }
 
-    }, [menuSettings.enableGenreAdaptMode]);
+    }, [menuSettings.enablePsyCoreModulatorMode]);
 
     // Update GUI when state props change from outside
     useEffect(() => {

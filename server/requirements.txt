@@ -1,0 +1,9 @@
+torch
+numpy
+av
+fastapi
+pydantic
+unsloth[gemma-torch]
+uvicorn
+timm
+librosa

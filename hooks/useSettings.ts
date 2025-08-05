@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     MenuSettings, GenreEditState, ModelProvider, AIModel
@@ -22,7 +21,13 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
             try {
                 const data = JSON.parse(saved);
                 if (data.version === VERSION && data.settings) {
-                    return { ...DEFAULT_MENU_SETTINGS, ...data.settings };
+                    // Make sure new settings from code update are included
+                    const combinedSettings = { ...DEFAULT_MENU_SETTINGS, ...data.settings };
+                    // Clean up deprecated settings
+                    delete (combinedSettings as any).enableGenreAdaptMode;
+                    delete (combinedSettings as any).enableAiVibeProducerMode;
+                    delete (combinedSettings as any).enableWellnessWeaverMode;
+                    return combinedSettings;
                 }
             } catch (e) {
                 console.error("Failed to load saved menu settings", e);

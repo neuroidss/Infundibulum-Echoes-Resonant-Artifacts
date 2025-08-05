@@ -1,0 +1,226 @@
+
+# server/scripts/gemma_server.py
+import os
+import sys
+import argparse
+import base64
+import io
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
+import torch
+import numpy as np
+import av
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Union, Literal
+from unsloth import FastModel
+
+# --- Basic Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- Pydantic Models for OpenAI Compatibility ---
+class ChatCompletionMessageTextPart(BaseModel):
+    type: Literal["text"]
+    text: str
+
+class ChatCompletionMessageAudioURL(BaseModel):
+    url: str # Expects data URI: "data:audio/wav;base64,{data}"
+
+class ChatCompletionMessageAudioPart(BaseModel):
+    type: Literal["audio_url"]
+    audio_url: ChatCompletionMessageAudioURL
+
+class ChatCompletionMessage(BaseModel):
+    role: str
+    content: Union[str, List[Union[ChatCompletionMessageTextPart, ChatCompletionMessageAudioPart]]]
+
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[ChatCompletionMessage]
+    temperature: float = 0.1
+    max_tokens: int = 512
+
+class ChatCompletionChoice(BaseModel):
+    index: int = 0
+    message: Dict[str, str]
+    finish_reason: str = "stop"
+
+class ChatCompletionResponse(BaseModel):
+    id: str = "chatcmpl-local"
+    object: str = "chat.completion"
+    created: int = 0
+    model: str
+    choices: List[ChatCompletionChoice]
+
+# --- Global State ---
+model_state = {}
+
+def load_audio_from_base64(base64_str: str, target_sr: int):
+    """Decodes base64 audio using PyAV (ffmpeg) and resamples to the target sample rate."""
+    try:
+        audio_data = base64.b64decode(base64_str)
+        audio_stream = io.BytesIO(audio_data)
+
+        with av.open(audio_stream, mode='r') as container:
+            stream = container.streams.audio[0]
+            # Set up the resampler to convert to mono, 16kHz, and signed 16-bit integers
+            resampler = av.AudioResampler(
+                format='s16',
+                layout='mono',
+                rate=target_sr
+            )
+            
+            # Read all frames and resample
+            frames = []
+            for frame in container.decode(stream):
+                frames.extend(resampler.resample(frame))
+
+            if not frames:
+                raise ValueError("Could not decode any audio frames.")
+
+            # Concatenate all frames into a single numpy array
+            audio_samples = np.concatenate([f.to_ndarray() for f in frames], axis=1)[0]
+            
+            # Convert from s16 int to float32
+            audio_array = audio_samples.astype(np.float32) / 32768.0
+            
+            logging.info(f"Successfully decoded and resampled audio to {len(audio_array)} samples at {target_sr}Hz.")
+            return audio_array, target_sr
+
+    except Exception as e:
+        logging.error(f"Error processing audio with PyAV: {e}")
+        raise ValueError(f"Could not load audio from base64 string. Error: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup: Load Model ---
+    logging.info("Starting up and loading model...")
+    model_id = "unsloth/gemma-3n-E2B-it-unsloth-bnb-4bit"
+    try:
+        model, tokenizer = FastModel.from_pretrained(
+            model_name=model_id,
+            max_seq_length=2048,
+            dtype=None,
+            load_in_4bit=True,
+        )
+        model_state['model'] = model
+        model_state['tokenizer'] = tokenizer
+        model_state['model_id'] = model_id
+        logging.info(f"Successfully loaded model '{model_id}' to device: {model.device}")
+    except Exception as e:
+        logging.error(f"FATAL: Could not load model. Error: {e}")
+        sys.exit(1)
+    yield
+    # --- Shutdown: Clean up ---
+    logging.info("Shutting down and clearing model state.")
+    model_state.clear()
+    torch.cuda.empty_cache()
+
+
+app = FastAPI(lifespan=lifespan)
+
+# --- Add CORS Middleware ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
+
+@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+async def chat_completions(request: ChatCompletionRequest):
+    if 'model' not in model_state:
+        raise HTTPException(status_code=503, detail="Model is not loaded or ready.")
+
+    model = model_state['model']
+    tokenizer = model_state['tokenizer']
+    
+    # --- Process Multimodal Input ---
+    prompt_parts = []
+    text_prompts = []
+    
+    user_message = request.messages[-1] # Assume the last message is the user's prompt
+    if not isinstance(user_message.content, list):
+         # Simple text-only case
+        text_prompts.append(user_message.content)
+    else:
+        # Multimodal case
+        for part in user_message.content:
+            if part.type == 'text':
+                text_prompts.append(part.text)
+            elif part.type == 'audio_url':
+                try:
+                    # Extract base64 data from data URI
+                    base64_content = part.audio_url.url.split(',')[1]
+                    sampling_rate = tokenizer.feature_extractor.sampling_rate
+                    audio_array, _ = load_audio_from_base64(base64_content, sampling_rate)
+                    prompt_parts.append({"type": "audio", "audio": audio_array})
+                    logging.info(f"Processed audio part, duration: {len(audio_array)/sampling_rate:.2f}s")
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Invalid audio data: {e}")
+
+    # Combine all text parts into one
+    full_text_prompt = " ".join(text_prompts)
+    if full_text_prompt:
+        prompt_parts.append({"type": "text", "text": full_text_prompt})
+
+    # --- Prepare Prompt for Model ---
+    messages = [{"role": "user", "content": prompt_parts}]
+    
+    try:
+        inputs = tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt"
+        ).to(model.device)
+
+        input_length = inputs.input_ids.shape[1]
+
+        logging.info("Generating response from model...")
+        with torch.no_grad():
+            generated_ids = model.generate(
+                **inputs, 
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature if request.temperature > 0 else None,
+                do_sample=request.temperature > 0,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        
+        # Slice generated_ids to get only the new tokens and decode
+        newly_generated_ids = generated_ids[:, input_length:]
+        response_text = tokenizer.batch_decode(newly_generated_ids, skip_special_tokens=True)[0].strip()
+        
+        logging.info(f"Generated response: {response_text}")
+
+        response = ChatCompletionResponse(
+            model=model_state['model_id'],
+            choices=[
+                ChatCompletionChoice(
+                    message={"role": "assistant", "content": response_text}
+                )
+            ]
+        )
+        return response
+
+    except Exception as e:
+        logging.error(f"Error during model inference: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error during inference: {e}")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    parser = argparse.ArgumentParser(description="Gemma Multimodal OpenAI-Compatible Server")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind the server to")
+    parser.add_argument("--port", type=int, default=8008, help="Port to run the server on")
+    args = parser.parse_args()
+    
+    logging.info(f"Starting Uvicorn server on {args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port)

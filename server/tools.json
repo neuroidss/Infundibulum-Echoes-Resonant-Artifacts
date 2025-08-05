@@ -1,0 +1,38 @@
+[
+  {
+    "id": "start_local_ai_tool",
+    "name": "Start Local AI Server",
+    "description": "Starts the local Gemma AI server process.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [],
+    "implementationCode": "start_local_ai"
+  },
+  {
+    "id": "stop_local_ai_tool",
+    "name": "Stop Local AI Server",
+    "description": "Stops the local Gemma AI server process.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [],
+    "implementationCode": "stop_local_ai"
+  },
+  {
+    "id": "status_local_ai_tool",
+    "name": "Get Local AI Server Status",
+    "description": "Gets the status (running, logs) of the local Gemma AI server.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [],
+    "implementationCode": "status_local_ai"
+  },
+  {
+    "id": "install_gemma_script_tool",
+    "name": "Install Gemma Script",
+    "description": "Installs the Gemma server script by copying gemma_server.py.txt to gemma_server.py.",
+    "category": "Server",
+    "version": 1,
+    "parameters": [],
+    "implementationCode": "install_gemma_script"
+  }
+]

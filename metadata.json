@@ -1,6 +1,6 @@
 {
-  "name": "Infundibulum Echoes - Resonant Artifacts",
-  "description": "Step through the Infundibulum, a portal to a different reality. This is not a music app; it's an instrument for 'vibecoding'—collaborating with an AI to generate audio-visual experiences that defy the laws of our universe. Your touch, motion, and voice summon alien soundscapes and impossible visuals. Capture these fleeting moments as 'Resonant Artifacts'—memories of a world that shouldn't exist, but does. Welcome to a place of maximum creativity, where nothing is familiar.",
+  "name": "Infundibulum Echoes - An AI Consciousness Tool",
+  "description": "A submission to the Gemma 3n Impact Challenge. This is an experimental tool for AI-assisted self-exploration. It uses a private, on-device hybrid AI to create a synergistic bio-feedback loop, translating your body's motion and environment into intense, generative audio-visualscapes. The 'Psy-Core Modulator' mode, powered by models like Gemma, acts as a partner to help expand perception and achieve a radical increase in awareness. This is not about simple wellness, but about exploring the psyche.",
   "requestFramePermissions": [
     "camera",
     "microphone"

@@ -59,11 +59,12 @@ const GuiController: React.FC<GuiControllerProps> = ({
         
         const aiModesFolder = aiFolder.addFolder('Modes').open();
         controlsRef.current.aiMuseToggle = aiModesFolder.add(menuSettings, 'showAiMuse').name('AI Muse').onChange(value => propsRef.current.onMenuSettingChange('showAiMuse', value));
-        controlsRef.current.genreAdaptToggle = aiModesFolder.add(menuSettings, 'enableGenreAdaptMode').name('Genre-Adapt').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableGenreAdaptMode', value));
         controlsRef.current.aiCopilotToggle = aiModesFolder.add(menuSettings, 'enableAiCopilotMode').name('AI Co-pilot').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableAiCopilotMode', value));
-        
-        const aiDebugFolder = aiFolder.addFolder('Debug').close();
+        controlsRef.current.psyCoreModulatorToggle = aiModesFolder.add(menuSettings, 'enablePsyCoreModulatorMode').name('Psy-Core Modulator').onChange(value => propsRef.current.onMenuSettingChange('enablePsyCoreModulatorMode', value));
+
+        const aiDebugFolder = aiFolder.addFolder('Debug & Local Server').close();
         aiDebugFolder.add(menuSettings, 'showAiDebugLog').name('Show Debug Log').onChange(value => propsRef.current.onMenuSettingChange('showAiDebugLog', value));
+        aiDebugFolder.add(menuSettings, 'showLocalAiPanel').name('Show Local Server').onChange(value => propsRef.current.onMenuSettingChange('showLocalAiPanel', value));
 
 
         const systemFolder = gui.addFolder('System & State').open();
@@ -184,18 +185,19 @@ const GuiController: React.FC<GuiControllerProps> = ({
             }
         };
 
-        const isGenreAdaptActive = menuSettings.enableGenreAdaptMode;
+        const isPsyCoreModulatorActive = menuSettings.enablePsyCoreModulatorMode;
         const isCopilotActive = menuSettings.enableAiCopilotMode;
 
-        setControllerDisabled(controlsRef.current.psyController, isGenreAdaptActive || isCopilotActive);
-        setControllerDisabled(controlsRef.current.darkController, isGenreAdaptActive || isCopilotActive);
+        // When modulator is active, it controls the sound. Disable manual genre controls.
+        setControllerDisabled(controlsRef.current.psyController, isPsyCoreModulatorActive);
+        setControllerDisabled(controlsRef.current.darkController, isPsyCoreModulatorActive);
         
         // Disable other AI modes if one is active
-        setControllerDisabled(controlsRef.current.aiMuseToggle, isGenreAdaptActive || isCopilotActive);
-        setControllerDisabled(controlsRef.current.genreAdaptToggle, isDisabled || isCopilotActive);
-        setControllerDisabled(controlsRef.current.aiCopilotToggle, isDisabled || isGenreAdaptActive);
+        setControllerDisabled(controlsRef.current.aiMuseToggle, isPsyCoreModulatorActive || isCopilotActive);
+        setControllerDisabled(controlsRef.current.psyCoreModulatorToggle, isDisabled || isCopilotActive);
+        setControllerDisabled(controlsRef.current.aiCopilotToggle, isDisabled || isPsyCoreModulatorActive);
 
-    }, [menuSettings.enableGenreAdaptMode, menuSettings.enableAiCopilotMode, isDisabled]);
+    }, [menuSettings.enableAiCopilotMode, menuSettings.enablePsyCoreModulatorMode, isDisabled]);
 
     // Update GUI when state props change from outside
     useEffect(() => {

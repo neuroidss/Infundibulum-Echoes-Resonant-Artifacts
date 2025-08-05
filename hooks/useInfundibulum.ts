@@ -1,6 +1,9 @@
 
 
+
+
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
+import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
 import {
     VERSION, STATE_VECTOR_SIZE, LOCAL_STORAGE_KEY, LOCAL_STORAGE_MENU_KEY,
     HNM_HIERARCHY_LEVEL_CONFIGS, HNM_POLICY_HEAD_INPUT_LEVEL_NAME,
@@ -8,7 +11,7 @@ import {
     ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX, ARTIFACT_SIMILARITY_THRESHOLD,
     MAX_ACTIVE_ARTIFACTS_LOGIC, REASONABLE_SHADER_ARTIFACT_CAP,
     HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM,
-    TARGET_FPS,
+    TARGET_FPS
 } from '../constants';
 import { useSettings } from './useSettings';
 import { useAppUI } from './useAppUI';
@@ -54,8 +57,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         handleMenuSettingChange,
         getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer }),
         getHnmAnomaly: () => hnm.lastL0Anomaly.current,
-        captureAudioClip: io.captureAudioClip,
-        captureImageClip: io.captureImageClip,
+        captureMultimodalContext: io.captureMultimodalContext,
     });
     
     const renderLoop = useRenderLoop(
@@ -72,6 +74,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     );
 
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isInstallingLocalAiScript, setIsInstallingLocalAiScript] = useState(false);
+    const [isServerConnected, setIsServerConnected] = useState(false);
     const appState = useRef({
         inputProcessor: null as PlaceholderInputProcessor | null,
         lastArtifactCreationTime: 0,
@@ -162,6 +166,193 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
     }, [menuSettings.enableHnmTraining, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, hnm, renderLoop, showWarning, showError, showLoading]);
 
+    // --- Local AI Server Logic ---
+    const logLocalAiEvent = useCallback((log: string) => {
+        setMenuSettings(prev => ({
+            ...prev,
+            localAiStatus: {
+                ...prev.localAiStatus,
+                logs: [...prev.localAiStatus.logs.slice(-50), log]
+            }
+        }));
+    }, [setMenuSettings]);
+    
+    const executeServerTool = useCallback(async (toolName: string) => {
+        if (!isServerConnected) {
+            throw new Error("Backend server not connected.");
+        }
+        const response = await fetch('http://localhost:3001/api/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: toolName, arguments: {} })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || `Failed to execute server tool '${toolName}'.`);
+        }
+        return result;
+    }, [isServerConnected]);
+
+    const initialPollDone = useRef(false);
+    const pollLocalAiStatus = useCallback(async () => {
+        try {
+            const response = await fetch('http://localhost:3001/api/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'Get Local AI Server Status', arguments: {} }),
+                signal: AbortSignal.timeout(4000), // Add a timeout to prevent hanging
+            });
+
+            if (!response.ok) {
+                let errorMsg = `Server returned status ${response.status}`;
+                try {
+                    const errBody = await response.json();
+                    errorMsg = errBody.error || errorMsg;
+                } catch {}
+                throw new Error(errorMsg);
+            }
+            const result = await response.json();
+            if (result.error) {
+                throw new Error(result.error);
+            }
+
+            setIsServerConnected(wasConnected => {
+                if (!wasConnected) {
+                    logLocalAiEvent("Backend server connected.");
+                }
+                return true;
+            });
+
+            setMenuSettings(p => ({
+                ...p,
+                localAiStatus: { 
+                    isRunning: result.isRunning, 
+                    logs: result.logs 
+                }
+            }));
+        } catch (e) {
+            setIsServerConnected(wasConnected => {
+                if (wasConnected) {
+                    logLocalAiEvent("Backend server connection lost.");
+                } else if (!initialPollDone.current) {
+                    logLocalAiEvent("Backend server NOT connected. Run 'start.sh' in /server to use Local AI features.");
+                }
+                // If connection is lost, we can't be sure about the server state.
+                // Setting isRunning to false is a safe assumption for the UI.
+                setMenuSettings(p => ({
+                    ...p,
+                    localAiStatus: { ...p.localAiStatus, isRunning: false }
+                }));
+                return false;
+            });
+        } finally {
+            initialPollDone.current = true;
+        }
+    }, [logLocalAiEvent, setMenuSettings]);
+
+    const handleInstallGemmaScript = useCallback(async () => {
+        if (!isServerConnected) {
+            showWarning("Backend server not connected.", 3000);
+            return;
+        }
+        setIsInstallingLocalAiScript(true);
+        logLocalAiEvent("Action: Installing server script...");
+        try {
+            const result = await executeServerTool("Install Gemma Script");
+            logLocalAiEvent(`SUCCESS: ${result.message}`);
+            showWarning("Gemma server script installed/updated on backend.", 3000);
+        } catch (e: any) {
+            logLocalAiEvent(`ERROR: ${e.message}`);
+            showError(`Failed to install script: ${e.message}`);
+        } finally {
+            setIsInstallingLocalAiScript(false);
+        }
+    }, [isServerConnected, logLocalAiEvent, showError, showWarning, executeServerTool]);
+
+    const handleStartLocalAiServer = useCallback(async () => {
+        logLocalAiEvent("Action: Starting local AI server...");
+        showLoading(true, "Starting local AI server...");
+        try {
+            const result = await executeServerTool("Start Local AI Server");
+            logLocalAiEvent(`SUCCESS: ${result.message}`);
+        } catch (e: any) {
+            logLocalAiEvent(`ERROR: ${e.message}`);
+            if (!e.message?.includes('already running')) {
+                showError(`Start failed: ${e.message}`);
+            } else {
+                logLocalAiEvent("Server was already running. Syncing status.");
+            }
+        } finally {
+            await pollLocalAiStatus();
+            showLoading(false);
+        }
+    }, [executeServerTool, logLocalAiEvent, showError, showLoading, pollLocalAiStatus]);
+
+    const handleStopLocalAiServer = useCallback(async () => {
+        logLocalAiEvent("Action: Stopping local AI server...");
+        showLoading(true, "Stopping local AI server...");
+        try {
+            const result = await executeServerTool("Stop Local AI Server");
+            logLocalAiEvent(`SUCCESS: ${result.message}`);
+        } catch (e: any) {
+            logLocalAiEvent(`ERROR: ${e.message}`);
+            if (!e.message?.includes('not running')) {
+                showError(`Stop failed: ${e.message}`);
+            } else {
+                logLocalAiEvent("Server was not running. Syncing status.");
+            }
+        } finally {
+            await pollLocalAiStatus();
+            showLoading(false);
+        }
+    }, [executeServerTool, logLocalAiEvent, showError, pollLocalAiStatus, showLoading]);
+    
+    const handleTestLocalAi = useCallback(async (audioBlob: Blob) => {
+        if (!menuSettings.localAiStatus.isRunning) {
+            throw new Error("Local AI Server is not running.");
+        }
+        logLocalAiEvent("Client Test: Sending audio to local Gemma server...");
+
+        try {
+            const reader = new FileReader();
+            reader.readAsDataURL(audioBlob);
+            await new Promise<void>((resolve, reject) => {
+                reader.onloadend = async () => {
+                    try {
+                        const base64Audio = reader.result as string;
+                        const body = {
+                            model: 'local/gemma-multimodal',
+                            messages: [
+                                { role: 'user', content: [
+                                    { type: 'text', text: 'Transcribe this audio.' },
+                                    { type: 'audio_url', audio_url: { url: base64Audio } }
+                                ]}
+                            ]
+                        };
+                        const response = await fetch('http://localhost:8008/v1/chat/completions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(body)
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.detail || result.error?.message || 'Test request failed');
+                        
+                        const transcription = result.choices[0]?.message?.content || 'No transcription found.';
+                        logLocalAiEvent(`LOCAL AI SERVER RESPONSE:\n"${transcription.trim()}"`);
+                        resolve();
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+                reader.onerror = (e) => reject(new Error("Failed to read audio blob."));
+            });
+        } catch (e: any) {
+            const errorMsg = `Local AI server test failed: ${e.message}. Is it running on port 8008?`;
+            logLocalAiEvent(`ERROR: ${errorMsg}`);
+            throw new Error(errorMsg);
+        }
+    }, [menuSettings.localAiStatus.isRunning, logLocalAiEvent]);
+
 
     const gameStep = useCallback(async () => {
         if (!hnm.hnmSystem.current || !appState.inputProcessor) return;
@@ -173,7 +364,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             const genreRuleSignal = tf.tensor1d(currentGenreRuleVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
             
             const micDiffMag = Math.abs(io.inputState.current.mic.rhythmPeak - io.inputState.current.accelerometer.rhythmPeak);
-            const externalL0SignalRaw = tf.tensor1d(hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength));
+            const externalL0SignalRaw = hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength);
             const externalL0Signal = externalL0SignalRaw.reshape([1,1,HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM]);
 
             const externalSignals = {
@@ -190,7 +381,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             );
 
             artifactSignal.dispose();
-            externalL0SignalRaw.dispose();
+            // externalL0SignalRaw is not a separate tensor, it is the result of the mul which is externalL0Signal before reshape. TFJS manages it.
             return stepResult;
         });
 
@@ -277,7 +468,15 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             showLoading(false);
         });
 
-        return () => { isMounted = false; renderLoop.stop(); hnm.reset(); };
+        pollLocalAiStatus();
+        const statusInterval = setInterval(pollLocalAiStatus, 5000);
+
+        return () => { 
+            isMounted = false; 
+            renderLoop.stop(); 
+            hnm.reset(); 
+            clearInterval(statusInterval);
+        };
     }, []);
 
     return {
@@ -300,6 +499,13 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         toggleAiConfigModal,
         handleAiConfigSubmit: (cfg) => setMenuSettings(p => ({...p, ...cfg})),
         handleCopilotRefine: ai.handleCopilotRefine,
-        handleTrainOnArtifacts
+        handleTrainOnArtifacts,
+        // Local AI Server methods
+        handleInstallGemmaScript,
+        handleStartLocalAiServer,
+        handleStopLocalAiServer,
+        handleTestLocalAi,
+        isInstallingLocalAiScript,
+        isServerConnected,
     };
 };

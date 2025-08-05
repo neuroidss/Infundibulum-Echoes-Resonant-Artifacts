@@ -1,5 +1,6 @@
 
 
+
 import { useRef, useCallback } from 'react';
 import type { InputState, MenuSettings } from '../types';
 import { MIC_FFT_SIZE, ACCEL_FFT_SIZE, LONG_PRESS_DURATION_MS, RESET_SECOND_TAP_WINDOW_MS, FULLSCREEN_REQUESTED_KEY } from '../constants';
@@ -78,6 +79,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
     const audioContext = useRef<AudioContext | null>(null);
     const audioWorkletNode = useRef<AudioWorkletNode | null>(null);
     const audioCaptureDestination = useRef<MediaStreamAudioDestinationNode | null>(null);
+    const outputAnalyserRef = useRef<AnalyserNode | null>(null);
     const speechController = useRef<SpeechRecognitionController | null>(null);
     const visualFeedback = useRef({ active: false, intensity: 0, startTime: 0, duration: 0.1 });
     const canvasRefForIO = useRef<HTMLCanvasElement | null>(null);
@@ -109,9 +111,17 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
             worklet.connect(masterGain);
             audioWorkletNode.current = worklet;
             
+            // Capture destination for recording output
             const captureDest = context.createMediaStreamDestination();
             worklet.connect(captureDest);
             audioCaptureDestination.current = captureDest;
+
+            // Analyser for spectrogram of output
+            const outputAnalyser = context.createAnalyser();
+            outputAnalyser.fftSize = 512;
+            outputAnalyser.smoothingTimeConstant = 0.3;
+            worklet.connect(outputAnalyser);
+            outputAnalyserRef.current = outputAnalyser;
 
             URL.revokeObjectURL(workletURL);
             return true;
@@ -206,50 +216,89 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         }
     }, [getMenuSettings]);
 
-    const captureAudioClip = useCallback((): Promise<{ mimeType: string, data: string } | null> => {
-        return new Promise((resolve) => {
-            if (!audioCaptureDestination.current?.stream || !audioCaptureDestination.current.stream.active) {
-                console.error("Audio capture stream is not available.");
-                resolve(null);
-                return;
-            }
-            const mediaRecorder = new MediaRecorder(audioCaptureDestination.current.stream, { mimeType: 'audio/webm;codecs=opus' });
-            const audioChunks: Blob[] = [];
-            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-            mediaRecorder.onstop = () => {
-                if (audioChunks.length === 0) { resolve(null); return; }
-                const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const [header, data] = (reader.result as string).split(',');
-                    const mimeType = header.split(':')[1].split(';')[0];
-                    resolve({ mimeType, data });
+    const captureMultimodalContext = useCallback(async (options: {
+        audio?: boolean;
+        image?: boolean;
+        spectrogram?: boolean;
+    } = { audio: true, image: true, spectrogram: true }) => {
+
+        const captureAudioClip = (): Promise<{ mimeType: string, data: string } | null> => {
+            return new Promise((resolve) => {
+                if (!audioCaptureDestination.current?.stream || !audioCaptureDestination.current.stream.active) {
+                    console.error("Audio capture stream is not available.");
+                    resolve(null); return;
+                }
+                const mediaRecorder = new MediaRecorder(audioCaptureDestination.current.stream, { mimeType: 'audio/webm;codecs=opus' });
+                const audioChunks: Blob[] = [];
+                mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+                mediaRecorder.onstop = () => {
+                    if (audioChunks.length === 0) { resolve(null); return; }
+                    const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const [header, data] = (reader.result as string).split(',');
+                        const mimeType = header.split(':')[1].split(';')[0];
+                        resolve({ mimeType, data });
+                    };
+                    reader.onerror = () => resolve(null);
+                    reader.readAsDataURL(audioBlob);
                 };
-                reader.onerror = () => resolve(null);
-                reader.readAsDataURL(audioBlob);
-            };
-            mediaRecorder.start();
-            setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, 5000);
-        });
-    }, []);
+                mediaRecorder.start();
+                setTimeout(() => { if (mediaRecorder.state === "recording") mediaRecorder.stop(); }, 5000);
+            });
+        };
 
-    const captureImageClip = useCallback((): { mimeType: string; data: string } | null => {
-        if (!canvasRefForIO.current) {
-            console.error("Canvas for image capture is not available.");
-            return null;
-        }
-        try {
-            const dataUrl = canvasRefForIO.current.toDataURL('image/jpeg', 0.8);
-            const [header, data] = dataUrl.split(',');
+        const captureImageClip = (): { mimeType: string; data: string } | null => {
+            if (!canvasRefForIO.current) return null;
+            try {
+                const dataUrl = canvasRefForIO.current.toDataURL('image/jpeg', 0.8);
+                const [header, data] = dataUrl.split(',');
+                if (!data) return null;
+                const mimeType = header.split(':')[1].split(';')[0];
+                return { mimeType, data };
+            } catch (e) { console.error("Failed to capture image from canvas:", e); return null; }
+        };
+
+        const captureSpectrogramClip = (): { mimeType: string; data: string; rawData: Uint8Array } | null => {
+            if (!outputAnalyserRef.current) return null;
+            const analyser = outputAnalyserRef.current;
+            const freqData = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(freqData);
+
+            const canvas = document.createElement('canvas');
+            const width = 256;
+            const height = 128;
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+            const barWidth = width / analyser.frequencyBinCount;
+
+            for (let i = 0; i < analyser.frequencyBinCount; i++) {
+                const barHeight = (freqData[i] / 255) * height;
+                const hue = 240 - (freqData[i] / 255) * 240;
+                ctx.fillStyle = `hsl(${hue}, 90%, 50%)`;
+                ctx.fillRect(i * barWidth, height - barHeight, barWidth, barHeight);
+            }
+            
+            const dataUrl = canvas.toDataURL('image/png');
+            const [, data] = dataUrl.split(',');
             if (!data) return null;
-            const mimeType = header.split(':')[1].split(';')[0];
-            return { mimeType, data };
-        } catch (e) {
-            console.error("Failed to capture image from canvas:", e);
-            return null;
-        }
-    }, []);
+            return { mimeType: 'image/png', data, rawData: new Uint8Array(freqData) };
+        };
 
+        const audioClipPromise = options.audio ? captureAudioClip() : Promise.resolve(null);
+        const imageClip = options.image ? captureImageClip() : null;
+        const spectrogramClip = options.spectrogram ? captureSpectrogramClip() : null;
+
+        const audioClip = await audioClipPromise;
+
+        return { audioClip, imageClip, spectrogramClip };
+
+    }, [canvasRefForIO]);
 
     const triggerVisualFeedback = (intensity = 0.5, duration = 0.1) => {
         visualFeedback.current = {
@@ -265,8 +314,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         initAudio,
         initialize,
         updateAudioWorklet,
-        captureAudioClip,
-        captureImageClip,
+        captureMultimodalContext,
         speechController,
         triggerVisualFeedback,
         visualFeedback,

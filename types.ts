@@ -1,3 +1,6 @@
+
+
+
 export interface MenuSettings {
     playerInfluence: number;
     genreRuleInfluence: number;
@@ -59,7 +62,7 @@ export interface MenuSettings {
     reverbMix: number;
     enableSpeechCommands: boolean;
     enableTapReset: boolean;
-    enableGenreAdaptMode: boolean;
+    enablePsyCoreModulatorMode: boolean;
     enableAiCopilotMode: boolean;
     aiCopilotThought: string;
     selectedModelId: string;
@@ -74,6 +77,13 @@ export interface MenuSettings {
     enableHnmTraining: boolean;
     hnmLearningRate: number;
     hnmWeightDecay: number;
+    showLocalAiPanel: boolean;
+    localAiStatus: LocalAiStatus;
+}
+
+export interface LocalAiStatus {
+  isRunning: boolean;
+  logs: string[];
 }
 
 export interface GenreEditState {
@@ -186,9 +196,28 @@ export interface ToolParameter {
 }
 
 export interface LLMTool {
+  id?: string;
   name: string;
   description: string;
   parameters: ToolParameter[];
+  category?: 'Server' | 'Client';
+  version?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  implementationCode?: string;
+}
+
+export interface NewToolPayload {
+    name: string;
+    description: string;
+    category: 'Server' | 'Client';
+    implementationCode: string;
+    parameters: ToolParameter[];
+}
+
+export interface AIToolCall {
+    name: string;
+    arguments: any;
 }
 
 export interface AIResponse {
@@ -199,11 +228,19 @@ export interface AIResponse {
   textResponse?: string;
 }
 
-export interface AiContext {
+export type AiContextItem = {
     mic: InputState['mic'];
     motion: InputState['accelerometer'];
     hnmAnomaly: number;
     currentSettings: Partial<MenuSettings>;
     audioClip?: { mimeType: string, data: string } | null;
     imageClip?: { mimeType: string, data: string } | null;
+    spectrogramClip?: { mimeType: string, data: string, rawData: Uint8Array } | null;
+    spectrogramText?: string;
+};
+
+export interface AiContext extends AiContextItem {
+    // For "before/after" learning loop
+    previousContext?: AiContextItem | null;
+    lastAction?: Partial<MenuSettings> | null;
 }

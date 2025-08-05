@@ -1,6 +1,7 @@
 
+
 import { useState, useRef, useCallback } from 'react';
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 import { HierarchicalSystemV5_TFJS, memStateDetach, disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
 import { FeatureExtractor, ArtifactManager } from '../lib/artifacts';
 import {
@@ -40,6 +41,7 @@ export const useHnmAndRag = (showLoading: (visible: boolean, message?: string, p
         showLoading(true, 'Initializing AI Core...', 'Loading embedding model...');
         if (!artifactManager.current) {
             try {
+                env.allowLocalModels = false;
                 const embeddingPipeline = await pipeline('feature-extraction', EMBEDDING_MODEL_NAME, {
                     progress_callback: (p: any) => {
                         if (p.status === 'progress') {

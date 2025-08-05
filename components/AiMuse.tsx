@@ -5,14 +5,15 @@ interface AiMuseProps {
   onGenerate: (prompt: string) => void;
   isDisabled: boolean;
   isCopilotActive: boolean;
+  isPsyCoreModulatorActive: boolean;
 }
 
-const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, isCopilotActive }) => {
+const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, isCopilotActive, isPsyCoreModulatorActive }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const trulyDisabled = isDisabled || isCopilotActive;
+  const trulyDisabled = isDisabled || isCopilotActive || isPsyCoreModulatorActive;
 
   // If AI is disabled or another mode is active, ensure the panel is closed.
   useEffect(() => {
@@ -39,11 +40,18 @@ const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, i
       setIsOpen(false);
     }
   };
+  
+  const getPlaceholderText = () => {
+      if (isDisabled) return "AI is not configured";
+      if (isCopilotActive) return "AI Co-pilot is active";
+      if (isPsyCoreModulatorActive) return "Psy-Core Modulator is active";
+      return "Describe a sound, genre, or mood...";
+  }
 
   const fabIcon = (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
       <path d="M12.75 3.375a.75.75 0 0 0-1.5 0V4.5h-1.125a.75.75 0 0 0 0 1.5h1.125V7.125a.75.75 0 0 0 1.5 0V6h1.125a.75.75 0 0 0 0-1.5H12.75V3.375z" />
-      <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM11.663 10.237c.394.066.663.41.663.813v.002a.85.85 0 0 1-.663.813q-.16.026-.328.026c-.864 0-1.6-.563-1.6-1.462 0-.9 1.125-1.462 1.928-1.462.434 0 .813.148 1.125.45l-.832.744a.43.43 0 0 0-.293-.45zM14.25 10.237c.394.066.663.41.663.813v.002a.85.85 0 0 1-.663.813q-.16.026-.328.026c-.864 0-1.6-.563-1.6-1.462 0-.9 1.125-1.462 1.928-1.462.434 0 .813.148 1.125.45l-.832.744a.43.43 0 0 0-.293-.45z" clipRule="evenodd" />
+      <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM11.663 10.237c.394.066.663.41.663.813v.002a.85.85 0 0 1-.663.813q-.16.026-.328.026c-.864 0-1.6-.563-1.6-1.462 0-.9 1.125-1.462 1.928-1.462.434 0 .813.148 1.125. ৪৫l-.832.744a.43.43 0 0 0-.293-.45zM14.25 10.237c.394.066.663.41.663.813v.002a.85.85 0 0 1-.663.813q-.16.026-.328.026c-.864 0-1.6-.563-1.6-1.462 0-.9 1.125-1.462 1.928-1.462.434 0 .813.148 1.125.45l-.832.744a.43.43 0 0 0-.293-.45z" clipRule="evenodd" />
     </svg>
   );
 
@@ -56,7 +64,7 @@ const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, i
             type="text"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder={isDisabled ? "AI is not configured" : (isCopilotActive ? "Co-pilot is active" : "Describe a sound, genre, or mood...")}
+            placeholder={getPlaceholderText()}
             className="w-full pl-4 pr-28 py-4 bg-gray-900/70 text-white placeholder-gray-400 border border-blue-500/30 rounded-full focus:ring-2 focus:ring-blue-400 focus:outline-none backdrop-blur-sm shadow-lg"
             disabled={isGenerating || trulyDisabled}
             aria-label="AI Muse Prompt"
@@ -80,6 +88,7 @@ const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, i
             ${trulyDisabled ? 'bg-gray-700 cursor-not-allowed opacity-60' : (isOpen ? 'bg-red-600 hover:bg-red-500 scale-90' : 'bg-blue-600 hover:bg-blue-500 scale-100')}
           `}
           aria-label={isDisabled ? "AI Not Configured" : (isCopilotActive ? "AI Co-pilot Active" : (isOpen ? 'Close AI Muse' : 'Open AI Muse'))}
+          title={getPlaceholderText()}
         >
           {isOpen && !trulyDisabled ? (
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
