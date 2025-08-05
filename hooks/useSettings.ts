@@ -27,6 +27,7 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
                     delete (combinedSettings as any).enableGenreAdaptMode;
                     delete (combinedSettings as any).enableAiVibeProducerMode;
                     delete (combinedSettings as any).enableWellnessWeaverMode;
+                    delete (combinedSettings as any).genreRuleInfluence; // Now hnmModulationDepth
                     return combinedSettings;
                 }
             } catch (e) {
@@ -61,24 +62,51 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
     }, [menuSettings.selectedModelId, menuSettings.googleApiKey, menuSettings.openAiApiKey, menuSettings.openAiBaseUrl, menuSettings.ollamaHost]);
 
     const currentGenreRuleVector = useMemo(() => {
-        const spectrumVal = menuSettings.psySpectrumPosition * 100;
-        let baseLightGenre1Name: string, baseLightGenre2Name: string, interpLight: number;
-        let baseDarkGenre1Name: string, baseDarkGenre2Name: string, interpDark: number;
+        const { energyLevel, mood } = menuSettings;
 
-        if (spectrumVal <= 33.33) { baseLightGenre1Name = "PSY_CHILL"; baseLightGenre2Name = "PSY_DUB"; interpLight = spectrumVal / 33.33; baseDarkGenre1Name = "DARK_PSY_CHILL"; baseDarkGenre2Name = "DARK_PSY_DUB"; interpDark = interpLight; }
-        else if (spectrumVal <= 66.66) { baseLightGenre1Name = "PSY_DUB"; baseLightGenre2Name = "PSY_PROGRESSIVE"; interpLight = (spectrumVal - 33.33) / 33.33; baseDarkGenre1Name = "DARK_PSY_DUB"; baseDarkGenre2Name = "DARK_PSY_PROG"; interpDark = interpLight; }
-        else { baseLightGenre1Name = "PSY_PROGRESSIVE"; baseLightGenre2Name = "PSY_FULLON"; interpLight = (spectrumVal - 66.66) / 33.34; baseDarkGenre1Name = "DARK_PSY_PROG"; baseDarkGenre2Name = "DARK_PSY"; interpDark = interpLight; }
-
-        const baseLightGenre1 = GENRE_TARGET_STATES[baseLightGenre1Name];
-        const baseLightGenre2 = GENRE_TARGET_STATES[baseLightGenre2Name];
-        const baseDarkGenre1 = GENRE_TARGET_STATES[baseDarkGenre1Name];
-        const baseDarkGenre2 = GENRE_TARGET_STATES[baseDarkGenre2Name];
-
-        const lightContinuumVector = new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(baseLightGenre1[i], baseLightGenre2[i], interpLight));
-        const darkContinuumVector = new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(baseDarkGenre1[i], baseDarkGenre2[i], interpDark));
+        // Determine base genres based on energy level
+        let baseLightGenre1Name: string, baseLightGenre2Name: string, interp: number;
+        if (energyLevel <= 0.333) {
+            baseLightGenre1Name = "PSY_CHILL";
+            baseLightGenre2Name = "PSY_DUB";
+            interp = energyLevel / 0.333;
+        } else if (energyLevel <= 0.666) {
+            baseLightGenre1Name = "PSY_DUB";
+            baseLightGenre2Name = "PSY_PROGRESSIVE";
+            interp = (energyLevel - 0.333) / 0.333;
+        } else {
+            baseLightGenre1Name = "PSY_PROGRESSIVE";
+            baseLightGenre2Name = "PSY_FULLON";
+            interp = (energyLevel - 0.666) / 0.334;
+        }
         
-        return new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(lightContinuumVector[i], darkContinuumVector[i], menuSettings.darknessModifier));
-    }, [menuSettings.psySpectrumPosition, menuSettings.darknessModifier]);
+        const getDarkGenreName = (lightGenreName: string): string => {
+            switch (lightGenreName) {
+                case "PSY_CHILL": return "DARK_PSY_CHILL";
+                case "PSY_DUB": return "DARK_PSY_DUB";
+                case "PSY_PROGRESSIVE": return "DARK_PSY_PROG";
+                case "PSY_FULLON": return "DARK_PSY";
+                default: return "DARK_PSY"; // Fallback
+            }
+        };
+
+        const baseDarkGenre1Name = getDarkGenreName(baseLightGenre1Name);
+        const baseDarkGenre2Name = getDarkGenreName(baseLightGenre2Name);
+
+        const baseLightGenre1 = GENRE_TARGET_STATES[baseLightGenre1Name] || GENRE_TARGET_STATES["PSY_CHILL"];
+        const baseLightGenre2 = GENRE_TARGET_STATES[baseLightGenre2Name] || GENRE_TARGET_STATES["PSY_FULLON"];
+        const baseDarkGenre1 = GENRE_TARGET_STATES[baseDarkGenre1Name] || GENRE_TARGET_STATES["DARK_PSY_CHILL"];
+        const baseDarkGenre2 = GENRE_TARGET_STATES[baseDarkGenre2Name] || GENRE_TARGET_STATES["DARK_PSY"];
+
+        const lightContinuumVector = new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(baseLightGenre1[i], baseLightGenre2[i], interp));
+        const darkContinuumVector = new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(baseDarkGenre1[i], baseDarkGenre2[i], interp));
+        
+        // mood is 0: Light, 1: Twilight, 2: Dark -> maps to a 0-1 modifier
+        const moodModifier = mood / 2.0;
+        
+        return new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(lightContinuumVector[i], darkContinuumVector[i], moodModifier));
+    }, [menuSettings.energyLevel, menuSettings.mood]);
+
 
     const saveMenuSettings = useCallback(() => {
         try {

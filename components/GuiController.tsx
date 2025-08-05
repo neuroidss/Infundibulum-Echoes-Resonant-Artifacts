@@ -66,18 +66,15 @@ const GuiController: React.FC<GuiControllerProps> = ({
         aiDebugFolder.add(menuSettings, 'showAiDebugLog').name('Show Debug Log').onChange(value => propsRef.current.onMenuSettingChange('showAiDebugLog', value));
         aiDebugFolder.add(menuSettings, 'showLocalAiPanel').name('Show Local Server').onChange(value => propsRef.current.onMenuSettingChange('showLocalAiPanel', value));
 
-
-        const systemFolder = gui.addFolder('System & State').open();
+        const systemFolder = gui.addFolder('System & HNM').open();
         systemFolder.add(menuSettings, 'enableSpeechCommands').name('Enable Speech').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableSpeechCommands', value));
         systemFolder.add(menuSettings, 'enableTapReset').name('Enable Tap Reset').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableTapReset', value));
         systemFolder.add({ reset: () => propsRef.current.resetMenuToDefaults() }, 'reset').name('Reset Menu Defaults');
         systemFolder.add({ reset: () => propsRef.current.resetHnmRag() }, 'reset').name('Reset HNM/RAG State');
-        
-        const hnmInfluenceFolder = gui.addFolder('HNM & Player Influence').open();
-        hnmInfluenceFolder.add(menuSettings, 'playerInfluence', 0, 1, 0.01).name('Player Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('playerInfluence', v));
-        hnmInfluenceFolder.add(menuSettings, 'genreRuleInfluence', 0, 1, 0.01).name('Genre Rule Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('genreRuleInfluence', v));
-        hnmInfluenceFolder.add(menuSettings, 'micFeedbackToL0Strength', 0, 1, 0.01).name('MicDiff Ext.Strength(L0)').onChange((v:number) => propsRef.current.onMenuSettingChange('micFeedbackToL0Strength', v));
-        hnmInfluenceFolder.add(menuSettings, 'explorationInfluence', 0, 1, 0.01).name('HNM Anomaly Explor.').onChange((v:number) => propsRef.current.onMenuSettingChange('explorationInfluence', v));
+        systemFolder.add(menuSettings, 'playerInfluence', 0, 1, 0.01).name('Player Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('playerInfluence', v));
+        systemFolder.add(menuSettings, 'hnmModulationDepth', 0, 1, 0.01).name('HNM Synth Modulation').onChange((v:number) => propsRef.current.onMenuSettingChange('hnmModulationDepth', v));
+        systemFolder.add(menuSettings, 'explorationInfluence', 0, 1, 0.01).name('HNM Anomaly Explor.').onChange((v:number) => propsRef.current.onMenuSettingChange('explorationInfluence', v));
+        systemFolder.add(menuSettings, 'micFeedbackToL0Strength', 0, 1, 0.01).name('MicDiff Ext.Strength(L0)').onChange((v:number) => propsRef.current.onMenuSettingChange('micFeedbackToL0Strength', v));
 
         const hnmTrainingFolder = gui.addFolder('HNM Training (Experimental)').close();
         hnmTrainingFolder.add(menuSettings, 'enableHnmTraining').name('Enable Training').onChange(value => propsRef.current.onMenuSettingChange('enableHnmTraining', value));
@@ -85,75 +82,92 @@ const GuiController: React.FC<GuiControllerProps> = ({
         hnmTrainingFolder.add(menuSettings, 'hnmWeightDecay', 0.0, 0.001, 0.00001).name('Weight Decay').onChange(value => propsRef.current.onMenuSettingChange('hnmWeightDecay', value));
         hnmTrainingFolder.add({ train: () => propsRef.current.handleTrainOnArtifacts() }, 'train').name('Train on Artifacts');
 
-
-        const genreSelectFolder = gui.addFolder('Genre Selection').open();
-        controlsRef.current.psyController = genreSelectFolder.add(menuSettings, 'psySpectrumPosition', 0, 1, 0.01).name('Psy Spectrum').onChange((v:number) => propsRef.current.onMenuSettingChange('psySpectrumPosition', v));
-        controlsRef.current.darkController = genreSelectFolder.add(menuSettings, 'darknessModifier', 0, 1, 0.01).name('Darkness Modifier').onChange((v:number) => propsRef.current.onMenuSettingChange('darknessModifier', v));
-        genreSelectFolder.add(menuSettings, 'masterBPM', 60, 220, 1).name('Master BPM').onChange((v:number) => propsRef.current.onMenuSettingChange('masterBPM', v));
+        const generativeFolder = gui.addFolder('Psy-Tek Framework').open();
+        controlsRef.current.energyController = generativeFolder.add(menuSettings, 'energyLevel', 0, 1, 0.01).name('Energy Level').onChange((v:number) => propsRef.current.onMenuSettingChange('energyLevel', v));
+        controlsRef.current.complexityController = generativeFolder.add(menuSettings, 'harmonicComplexity', 0, 1, 0.01).name('Harmonic Complexity').onChange((v:number) => propsRef.current.onMenuSettingChange('harmonicComplexity', v));
+        controlsRef.current.moodController = generativeFolder.add(menuSettings, 'mood', { Light: 0, Twilight: 1, Dark: 2 }).name('Mood').onChange((v:number) => propsRef.current.onMenuSettingChange('mood', Number(v)));
+        generativeFolder.add(menuSettings, 'masterBPM', 60, 220, 1).name('Master BPM').onChange((v:number) => propsRef.current.onMenuSettingChange('masterBPM', v));
 
         const kickFolder = gui.addFolder('Kick Drum').close();
+        kickFolder.add(menuSettings, 'kickPatternDensity', 0, 1, 0.01).name('Pattern Density').onChange((v:number) => propsRef.current.onMenuSettingChange('kickPatternDensity', v));
         kickFolder.add(menuSettings, 'kickTune', 0, 1, 0.01).name('Tune').onChange((v:number) => propsRef.current.onMenuSettingChange('kickTune', v));
-        kickFolder.add(menuSettings, 'kickPunch', 0, 1, 0.01).name('Punch').onChange((v:number) => propsRef.current.onMenuSettingChange('kickPunch', v));
-        kickFolder.add(menuSettings, 'kickDecay', 0.01, 1, 0.01).name('Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('kickDecay', v));
-        kickFolder.add(menuSettings, 'kickClick', 0, 1, 0.01).name('Click').onChange((v:number) => propsRef.current.onMenuSettingChange('kickClick', v));
+        kickFolder.add(menuSettings, 'kickAttack', 0, 1, 0.01).name('Attack').onChange((v: number) => propsRef.current.onMenuSettingChange('kickAttack', v));
+        kickFolder.add(menuSettings, 'kickPitchDecay', 0.005, 0.1, 0.001).name('Pitch Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('kickPitchDecay', v));
+        kickFolder.add(menuSettings, 'kickAmpDecay', 0.05, 1, 0.01).name('Amp Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('kickAmpDecay', v));
+        kickFolder.add(menuSettings, 'kickDistortion', 0, 1, 0.01).name('Distortion').onChange((v: number) => propsRef.current.onMenuSettingChange('kickDistortion', v));
         kickFolder.add(menuSettings, 'kickLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('kickLevel', v));
 
         const bassFolder = gui.addFolder('Bass').close();
+        bassFolder.add(menuSettings, 'bassPatternDensity', 0, 1, 0.01).name('Pattern Density').onChange((v:number) => propsRef.current.onMenuSettingChange('bassPatternDensity', v));
         bassFolder.add(menuSettings, 'bassOscType', { Saw: 0, Square: 1 }).name('Osc Type').onChange((v:number) => propsRef.current.onMenuSettingChange('bassOscType', Number(v)));
-        bassFolder.add(menuSettings, 'bassOctave', 0, 1, 0.01).name('Octave').onChange((v:number) => propsRef.current.onMenuSettingChange('bassOctave', v));
+        bassFolder.add(menuSettings, 'bassSubOscLevel', 0, 1, 0.01).name('Sub Osc Level').onChange((v: number) => propsRef.current.onMenuSettingChange('bassSubOscLevel', v));
+        bassFolder.add(menuSettings, 'bassOctave', { 'Sub -2': 0, 'Sub -1': 1, 'Root': 2 }).name('Octave').onChange((v:number) => propsRef.current.onMenuSettingChange('bassOctave', Number(v)));
+        bassFolder.add(menuSettings, 'bassPW', 0.05, 0.95, 0.01).name('Pulse Width').onChange((v: number) => propsRef.current.onMenuSettingChange('bassPW', v));
+        bassFolder.add(menuSettings, 'bassGlide', 0, 0.2, 0.001).name('Glide').onChange((v: number) => propsRef.current.onMenuSettingChange('bassGlide', v));
         bassFolder.add(menuSettings, 'bassCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v:number) => propsRef.current.onMenuSettingChange('bassCutoff', v));
         bassFolder.add(menuSettings, 'bassReso', 0, 1, 0.01).name('Reso').onChange((v:number) => propsRef.current.onMenuSettingChange('bassReso', v));
         bassFolder.add(menuSettings, 'bassEnvAmt', 0, 1, 0.01).name('Env Amt').onChange((v:number) => propsRef.current.onMenuSettingChange('bassEnvAmt', v));
+        bassFolder.add(menuSettings, 'bassFilterKeyTrack', 0, 1, 0.01).name('Key Track').onChange((v: number) => propsRef.current.onMenuSettingChange('bassFilterKeyTrack', v));
         bassFolder.add(menuSettings, 'bassFilterDecay', 0.01, 0.5, 0.005).name('Filter Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('bassFilterDecay', v));
         bassFolder.add(menuSettings, 'bassAmpDecay', 0.01, 0.5, 0.005).name('Amp Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('bassAmpDecay', v));
-        bassFolder.add(menuSettings, 'bassFilterLfoRate', 0, 1, 0.01).name('Filt LFO Rate').onChange((v: number) => propsRef.current.onMenuSettingChange('bassFilterLfoRate', v));
-        bassFolder.add(menuSettings, 'bassFilterLfoDepth', 0, 1, 0.01).name('Filt LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('bassFilterLfoDepth', v));
         bassFolder.add(menuSettings, 'bassLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('bassLevel', v));
         
-        const leadFolder = gui.addFolder('Lead Synth').close();
-        leadFolder.add(menuSettings, 'leadOscType', { Saw:0, Square:1, FMish:2 }).name('Osc Type').onChange((v:number) => propsRef.current.onMenuSettingChange('leadOscType', Number(v)));
-        leadFolder.add(menuSettings, 'leadOctave', 0, 1, 0.01).name('Octave').onChange((v: number) => propsRef.current.onMenuSettingChange('leadOctave', v));
-        leadFolder.add(menuSettings, 'leadPW', 0.05, 0.95, 0.01).name('Pulse Width').onChange((v: number) => propsRef.current.onMenuSettingChange('leadPW', v));
-        leadFolder.add(menuSettings, 'leadCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('leadCutoff', v));
-        leadFolder.add(menuSettings, 'leadReso', 0, 1, 0.01).name('Reso').onChange((v: number) => propsRef.current.onMenuSettingChange('leadReso', v));
-        leadFolder.add(menuSettings, 'leadEnvAmt', 0, 1, 0.01).name('Env Amt').onChange((v: number) => propsRef.current.onMenuSettingChange('leadEnvAmt', v));
-        leadFolder.add(menuSettings, 'leadFilterDecay', 0.01, 1, 0.01).name('Filter Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('leadFilterDecay', v));
-        leadFolder.add(menuSettings, 'leadAmpDecay', 0.01, 2, 0.01).name('Amp Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('leadAmpDecay', v));
-        leadFolder.add(menuSettings, 'leadPitchLfoRate', 0, 1, 0.01).name('Pitch LFO Rate').onChange((v: number) => propsRef.current.onMenuSettingChange('leadPitchLfoRate', v));
-        leadFolder.add(menuSettings, 'leadPitchLfoDepth', 0, 1, 0.01).name('Pitch LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('leadPitchLfoDepth', v));
-        leadFolder.add(menuSettings, 'leadFilterLfoRate', 0, 1, 0.01).name('Filt LFO Rate').onChange((v: number) => propsRef.current.onMenuSettingChange('leadFilterLfoRate', v));
-        leadFolder.add(menuSettings, 'leadFilterLfoDepth', 0, 1, 0.01).name('Filt LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('leadFilterLfoDepth', v));
-        leadFolder.add(menuSettings, 'leadLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('leadLevel', v));
+        const acidFolder = gui.addFolder('Acid Synth').close();
+        acidFolder.add(menuSettings, 'acidPatternDensity', 0, 1, 0.01).name('Pattern Density').onChange((v: number) => propsRef.current.onMenuSettingChange('acidPatternDensity', v));
+        acidFolder.add(menuSettings, 'acidOctave', { Low: 0, Mid: 1, High: 2 }).name('Octave').onChange((v: number) => propsRef.current.onMenuSettingChange('acidOctave', Number(v)));
+        acidFolder.add(menuSettings, 'acidCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('acidCutoff', v));
+        acidFolder.add(menuSettings, 'acidReso', 0, 1, 0.01).name('Resonance').onChange((v: number) => propsRef.current.onMenuSettingChange('acidReso', v));
+        acidFolder.add(menuSettings, 'acidEnvAmt', 0, 1, 0.01).name('Env Amount').onChange((v: number) => propsRef.current.onMenuSettingChange('acidEnvAmt', v));
+        acidFolder.add(menuSettings, 'acidDecay', 0.01, 1, 0.01).name('Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('acidDecay', v));
+        acidFolder.add(menuSettings, 'acidAccentAmount', 0, 1, 0.01).name('Accent').onChange((v: number) => propsRef.current.onMenuSettingChange('acidAccentAmount', v));
+        acidFolder.add(menuSettings, 'acidLevel', 0, 1, 0.01).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('acidLevel', v));
 
-        const hatsFolder = gui.addFolder('Hi-Hats').close();
-        hatsFolder.add(menuSettings, 'hatClosedDecay', 0.005, 0.2, 0.001).name('Closed Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('hatClosedDecay', v));
-        hatsFolder.add(menuSettings, 'hatOpenDecay', 0.05, 0.5, 0.005).name('Open Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('hatOpenDecay', v));
-        hatsFolder.add(menuSettings, 'hatHpfCutoff', 0.1, 1, 0.01).name('HPF Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('hatHpfCutoff', v));
-        hatsFolder.add(menuSettings, 'hatTone', 0, 1, 0.01).name('Tone Adjust').onChange((v: number) => propsRef.current.onMenuSettingChange('hatTone', v));
-        hatsFolder.add(menuSettings, 'hatLevel', 0, 1, 0.01).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('hatLevel', v));
+        const atmosFolder = gui.addFolder('Atmos Pad').close();
+        atmosFolder.add(menuSettings, 'atmosOscType', { Saw: 0, FMish: 1 }).name('Osc Type').onChange((v: number) => propsRef.current.onMenuSettingChange('atmosOscType', Number(v)));
+        atmosFolder.add(menuSettings, 'atmosEvolutionRate', 0, 1, 0.01).name('Evolution Rate').onChange((v: number) => propsRef.current.onMenuSettingChange('atmosEvolutionRate', v));
+        atmosFolder.add(menuSettings, 'atmosCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('atmosCutoff', v));
+        atmosFolder.add(menuSettings, 'atmosReso', 0, 1, 0.01).name('Resonance').onChange((v: number) => propsRef.current.onMenuSettingChange('atmosReso', v));
+        atmosFolder.add(menuSettings, 'atmosSpread', 0, 1, 0.01).name('Stereo Spread').onChange((v: number) => propsRef.current.onMenuSettingChange('atmosSpread', v));
+        atmosFolder.add(menuSettings, 'atmosLevel', 0, 1, 0.01).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('atmosLevel', v));
+        
+        const rhythmFolder = gui.addFolder('Rhythm Synth').close();
+        rhythmFolder.add(menuSettings, 'rhythmPatternDensity', 0, 1, 0.01).name('Pattern Density').onChange((v: number) => propsRef.current.onMenuSettingChange('rhythmPatternDensity', v));
+        rhythmFolder.add(menuSettings, 'rhythmClosedDecay', 0.005, 0.2, 0.001).name('Closed Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('rhythmClosedDecay', v));
+        rhythmFolder.add(menuSettings, 'rhythmOpenDecay', 0.05, 0.5, 0.005).name('Open Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('rhythmOpenDecay', v));
+        rhythmFolder.add(menuSettings, 'rhythmHpfCutoff', 0.1, 1, 0.01).name('HPF Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('rhythmHpfCutoff', v));
+        rhythmFolder.add(menuSettings, 'rhythmMetallicAmount', 0, 1, 0.01).name('Metallic').onChange((v: number) => propsRef.current.onMenuSettingChange('rhythmMetallicAmount', v));
+        rhythmFolder.add(menuSettings, 'rhythmLevel', 0, 1, 0.01).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('rhythmLevel', v));
 
         const snareFolder = gui.addFolder('Snare').close();
+        snareFolder.add(menuSettings, 'snarePatternDensity', 0, 1, 0.01).name('Pattern Density').onChange((v: number) => propsRef.current.onMenuSettingChange('snarePatternDensity', v));
+        snareFolder.add(menuSettings, 'snareFlamAmount', 0, 1, 0.01).name('Flam Amount').onChange((v: number) => propsRef.current.onMenuSettingChange('snareFlamAmount', v));
         snareFolder.add(menuSettings, 'snareNoiseLevel', 0, 1, 0.01).name('Noise Level').onChange((v: number) => propsRef.current.onMenuSettingChange('snareNoiseLevel', v));
         snareFolder.add(menuSettings, 'snareNoiseDecay', 0.01, 0.3, 0.005).name('Noise Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('snareNoiseDecay', v));
+        snareFolder.add(menuSettings, 'snareNoiseCutoff', 0.01, 1, 0.01).name('Noise Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('snareNoiseCutoff', v));
         snareFolder.add(menuSettings, 'snareBodyTune', 0, 1, 0.01).name('Body Tune').onChange((v: number) => propsRef.current.onMenuSettingChange('snareBodyTune', v));
         snareFolder.add(menuSettings, 'snareBodyDecay', 0.01, 0.5, 0.005).name('Body Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('snareBodyDecay', v));
         snareFolder.add(menuSettings, 'snareBodyLevel', 0, 1, 0.01).name('Body Level').onChange((v: number) => propsRef.current.onMenuSettingChange('snareBodyLevel', v));
         snareFolder.add(menuSettings, 'snareLevel', 0, 1, 0.01).name('Master Level').onChange((v: number) => propsRef.current.onMenuSettingChange('snareLevel', v));
         
-        const noiseFxFolder = gui.addFolder('Noise FX').close();
-        noiseFxFolder.add(menuSettings, 'noiseFxFiltType', { LP:0, HP:1, BP:2 }).name('Filter Type').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxFiltType', Number(v)));
-        noiseFxFolder.add(menuSettings, 'noiseFxCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxCutoff', v));
-        noiseFxFolder.add(menuSettings, 'noiseFxReso', 0, 1, 0.01).name('Resonance').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxReso', v));
-        noiseFxFolder.add(menuSettings, 'noiseFxLfoRate', 0, 1, 0.01).name('LFO Rate').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxLfoRate', v));
-        noiseFxFolder.add(menuSettings, 'noiseFxLfoDepth', 0, 1, 0.01).name('LFO Depth').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxLfoDepth', v));
-        noiseFxFolder.add(menuSettings, 'noiseFxLevel', 0, 1, 0.005).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('noiseFxLevel', v));
+        const riserFolder = gui.addFolder('Riser FX').close();
+        riserFolder.add(menuSettings, 'riserTriggerRate', { Off:0, '4 Bars':1, '8 Bars':2, '16 Bars':3 }).name('Trigger Rate').onChange((v: number) => propsRef.current.onMenuSettingChange('riserTriggerRate', Number(v)));
+        riserFolder.add(menuSettings, 'riserAttack', 0.01, 4, 0.01).name('Attack').onChange((v: number) => propsRef.current.onMenuSettingChange('riserAttack', v));
+        riserFolder.add(menuSettings, 'riserDecay', 0.1, 8, 0.01).name('Decay').onChange((v: number) => propsRef.current.onMenuSettingChange('riserDecay', v));
+        riserFolder.add(menuSettings, 'riserPitchSweep', 0, 1, 0.01).name('Pitch Sweep').onChange((v: number) => propsRef.current.onMenuSettingChange('riserPitchSweep', v));
+        riserFolder.add(menuSettings, 'riserCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => propsRef.current.onMenuSettingChange('riserCutoff', v));
+        riserFolder.add(menuSettings, 'riserReso', 0, 1, 0.01).name('Resonance').onChange((v: number) => propsRef.current.onMenuSettingChange('riserReso', v));
+        riserFolder.add(menuSettings, 'riserLevel', 0, 1, 0.005).name('Level').onChange((v: number) => propsRef.current.onMenuSettingChange('riserLevel', v));
 
-        const fxFolder = gui.addFolder('FX Bus').close();
+        const fxFolder = gui.addFolder('Master FX Bus').close();
         fxFolder.add(menuSettings, 'delayTimeMode', { '1/16':0, '1/8':1, '3/16':2, '1/4':3, '1/2':4 }).name('Delay Time').onChange((v: number) => propsRef.current.onMenuSettingChange('delayTimeMode', Number(v)));
         fxFolder.add(menuSettings, 'delayFeedback', 0, 0.98, 0.01).name('Delay Feedback').onChange((v: number) => propsRef.current.onMenuSettingChange('delayFeedback', v));
+        fxFolder.add(menuSettings, 'delayFilterCutoff', 0.05, 1, 0.01).name('Delay Filter').onChange((v: number) => propsRef.current.onMenuSettingChange('delayFilterCutoff', v));
+        fxFolder.add(menuSettings, 'delayStereo', 0, 1, 0.01).name('Delay Stereo').onChange((v: number) => propsRef.current.onMenuSettingChange('delayStereo', v));
         fxFolder.add(menuSettings, 'delayMix', 0, 1, 0.01).name('Delay Mix').onChange((v:number) => propsRef.current.onMenuSettingChange('delayMix', v));
         fxFolder.add(menuSettings, 'reverbSize', 0.1, 1, 0.01).name('Reverb Size').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbSize', v));
         fxFolder.add(menuSettings, 'reverbDamp', 0, 1, 0.01).name('Reverb Damp').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbDamp', v));
+        fxFolder.add(menuSettings, 'reverbPreDelay', 0, 0.2, 0.001).name('Reverb Pre-Delay').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbPreDelay', v));
+        fxFolder.add(menuSettings, 'reverbShimmer', 0, 1, 0.01).name('Reverb Shimmer').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbShimmer', v));
         fxFolder.add(menuSettings, 'reverbMix', 0, 1, 0.01).name('Reverb Mix').onChange((v:number) => propsRef.current.onMenuSettingChange('reverbMix', v));
 
         const genreEditFolder = gui.addFolder('Genre Editor (HNM Targets)').close();
@@ -166,7 +180,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
             genreEditFolder.add(genreEditState, `genreEdit_Param${i}`, 0, 1, 0.01).name(`P${GENRE_EDIT_SLIDER_MAPPING[i]}`).onChange(value => propsRef.current.onGenreEditChange(`genreEdit_Param${i}`, value));
         }
         genreEditFolder.add({ save: () => propsRef.current.saveSlidersToSelectedGenre() }, 'save').name('Save Sliders to Genre');
-
+        
         guiRef.current = gui;
 
         return () => {
@@ -187,10 +201,11 @@ const GuiController: React.FC<GuiControllerProps> = ({
 
         const isPsyCoreModulatorActive = menuSettings.enablePsyCoreModulatorMode;
         const isCopilotActive = menuSettings.enableAiCopilotMode;
-
-        // When modulator is active, it controls the sound. Disable manual genre controls.
-        setControllerDisabled(controlsRef.current.psyController, isPsyCoreModulatorActive);
-        setControllerDisabled(controlsRef.current.darkController, isPsyCoreModulatorActive);
+        
+        const isGenerativeControlDisabled = isPsyCoreModulatorActive || isCopilotActive;
+        setControllerDisabled(controlsRef.current.energyController, isGenerativeControlDisabled);
+        setControllerDisabled(controlsRef.current.complexityController, isGenerativeControlDisabled);
+        setControllerDisabled(controlsRef.current.moodController, isGenerativeControlDisabled);
         
         // Disable other AI modes if one is active
         setControllerDisabled(controlsRef.current.aiMuseToggle, isPsyCoreModulatorActive || isCopilotActive);
@@ -203,9 +218,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
     useEffect(() => {
         if (!guiRef.current) return;
         guiRef.current.controllersRecursive().forEach(controller => {
-            // Check if controller property exists in menuSettings before updating
             if (Object.prototype.hasOwnProperty.call(menuSettings, controller.property)) {
-                // Check if the current value is different to prevent redundant updates
                 if (controller.object[controller.property] !== menuSettings[controller.property as keyof MenuSettings]) {
                     controller.setValue(menuSettings[controller.property as keyof MenuSettings]);
                 }

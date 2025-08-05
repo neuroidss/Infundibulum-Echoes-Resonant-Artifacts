@@ -61,8 +61,8 @@ const GuiController: React.FC<GuiControllerProps> = ({
 
         const kickFolder = gui.addFolder('Kick Drum');
         kickFolder.add(menuSettings, 'kickTune', 0, 1, 0.01).name('Tune').onChange((v:number) => propsRef.current.onMenuSettingChange('kickTune', v));
-        kickFolder.add(menuSettings, 'kickPunch', 0, 1, 0.01).name('Punch').onChange((v:number) => propsRef.current.onMenuSettingChange('kickPunch', v));
-        kickFolder.add(menuSettings, 'kickDecay', 0.01, 1, 0.01).name('Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('kickDecay', v));
+        kickFolder.add(menuSettings, 'kickAttack', 0, 1, 0.01).name('Attack').onChange((v:number) => propsRef.current.onMenuSettingChange('kickAttack', v));
+        kickFolder.add(menuSettings, 'kickAmpDecay', 0.01, 1, 0.01).name('Amp Decay').onChange((v:number) => propsRef.current.onMenuSettingChange('kickAmpDecay', v));
         kickFolder.add(menuSettings, 'kickClick', 0, 1, 0.01).name('Click').onChange((v:number) => propsRef.current.onMenuSettingChange('kickClick', v));
         kickFolder.add(menuSettings, 'kickLevel', 0, 1, 0.01).name('Level').onChange((v:number) => propsRef.current.onMenuSettingChange('kickLevel', v));
 

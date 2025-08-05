@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
 import {
@@ -17,10 +18,58 @@ import { useHnmAndRag } from './useHnmAndRag';
 import { useRenderLoop } from './useAppLogic';
 import { useAiFeatures } from './useAiFeatures';
 import { PlaceholderInputProcessor } from '../lib/inputs';
-import { tensorLerp } from '../lib/utils';
+import { tensorLerp, lerp } from '../lib/utils';
 import { disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
+import type { MenuSettings } from '../types';
 
 declare var tf: any;
+
+// --- HNM Conductor Logic: The core of the new architecture ---
+const calculateModulatedParams = (
+    baseSettings: MenuSettings,
+    hnmStateVector: number[],
+    hnmModulationDepth: number
+): MenuSettings => {
+    const modulated = { ...baseSettings };
+    if (!hnmStateVector || hnmStateVector.length < STATE_VECTOR_SIZE) {
+        return modulated;
+    }
+
+    const hnm = (i: number) => hnmStateVector[i % STATE_VECTOR_SIZE] || 0.5;
+    const mod = (base: number, hnmIdx: number) => lerp(base, hnm(hnmIdx), hnmModulationDepth);
+
+    // This mapping determines which part of the HNM's "thought vector" controls which synth parameter.
+    // The indices are arbitrary but spread out to tap into different parts of the vector.
+    modulated.masterBPM = lerp(baseSettings.masterBPM, lerp(80, 220, hnm(0)), hnmModulationDepth);
+    modulated.kickPatternDensity = mod(baseSettings.kickPatternDensity, 1);
+    modulated.kickTune = mod(baseSettings.kickTune, 2);
+    modulated.kickAttack = mod(baseSettings.kickAttack, 3);
+    modulated.kickDistortion = mod(baseSettings.kickDistortion, 4);
+    modulated.bassPatternDensity = mod(baseSettings.bassPatternDensity, 5);
+    modulated.bassCutoff = mod(baseSettings.bassCutoff, 6);
+    modulated.bassReso = mod(baseSettings.bassReso, 7);
+    modulated.bassGlide = mod(baseSettings.bassGlide, 8);
+    modulated.acidPatternDensity = mod(baseSettings.acidPatternDensity, 9);
+    modulated.acidCutoff = mod(baseSettings.acidCutoff, 10);
+    modulated.acidReso = mod(baseSettings.acidReso, 11);
+    modulated.acidAccentAmount = mod(baseSettings.acidAccentAmount, 12);
+    modulated.atmosEvolutionRate = mod(baseSettings.atmosEvolutionRate, 13);
+    modulated.atmosCutoff = mod(baseSettings.atmosCutoff, 14);
+    modulated.atmosSpread = mod(baseSettings.atmosSpread, 15);
+    modulated.rhythmPatternDensity = mod(baseSettings.rhythmPatternDensity, 16);
+    modulated.rhythmMetallicAmount = mod(baseSettings.rhythmMetallicAmount, 17);
+    modulated.snarePatternDensity = mod(baseSettings.snarePatternDensity, 18);
+    modulated.snareFlamAmount = mod(baseSettings.snareFlamAmount, 19);
+    modulated.riserPitchSweep = mod(baseSettings.riserPitchSweep, 20);
+    modulated.delayFeedback = mod(baseSettings.delayFeedback, 21);
+    modulated.delayMix = mod(baseSettings.delayMix, 22);
+    modulated.reverbSize = mod(baseSettings.reverbSize, 23);
+    modulated.reverbShimmer = mod(baseSettings.reverbShimmer, 24);
+    modulated.reverbMix = mod(baseSettings.reverbMix, 25);
+    
+    return modulated;
+};
+
 
 export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const {
@@ -39,11 +88,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         onSpeechCommand: handleSpeechCommand,
         setSpeechStatus,
         showError,
-        showWarning,
-        getMenuSettings: () => menuSettings
+        showWarning
     });
 
     const hnm = useHnmAndRag(showLoading);
+    const [hnmStateVector, setHnmStateVector] = useState<number[]>(new Array(STATE_VECTOR_SIZE).fill(0.5));
 
     const ai = useAiFeatures({
         menuSettings,
@@ -59,14 +108,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     
     const renderLoop = useRenderLoop(
         canvasRef,
-        () => menuSettings,
-        () => io.inputState.current,
         () => ({
-            currentResonantState: hnm.currentResonantState.current,
+            currentResonantStateVector: hnmStateVector,
             activeArtifactInfo: hnm.activeArtifactInfo.current,
             lastL0Anomaly: hnm.lastL0Anomaly.current,
         }),
-        io.updateAudioWorklet,
         setDebugInfo
     );
 
@@ -350,8 +396,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
     }, [menuSettings.localAiStatus.isRunning, logLocalAiEvent]);
 
-    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, currentGenreRuleVector });
-    gameLogicDependencies.current = { hnm, appState, io, menuSettings, currentGenreRuleVector };
+    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, currentGenreRuleVector, hnmStateVector });
+    gameLogicDependencies.current = { hnm, appState, io, menuSettings, currentGenreRuleVector, hnmStateVector };
 
     const gameStep = useCallback(async () => {
         const { hnm, appState, io, menuSettings, currentGenreRuleVector } = gameLogicDependencies.current;
@@ -359,7 +405,6 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
         const hnmStepPackage = tf.tidy(() => {
             const sensoryInputTensor = appState.inputProcessor!.process(io.inputState.current, io.inputState.current.currentTime);
-
             const artifactSignal = hnm.projectArtifactsToExternalSignal(hnm.activeArtifactInfo.current, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM);
             const genreRuleSignal = tf.tensor1d(currentGenreRuleVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
             
@@ -372,17 +417,12 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 [HNM_HIERARCHY_LEVEL_CONFIGS[1].external_input_config!.source_signal_name]: genreRuleSignal,
             };
 
-            const stepResult = hnm.hnmSystem.current!.step(
+            return hnm.hnmSystem.current!.step(
                 hnm.hnmMemoryStates.current,
                 hnm.hnmLastStepOutputs.current,
                 { [HNM_HIERARCHY_LEVEL_CONFIGS[0].name]: sensoryInputTensor },
-                externalSignals,
-                true
+                externalSignals, true
             );
-
-            artifactSignal.dispose();
-            // externalL0SignalRaw is not a separate tensor, it is the result of the mul which is externalL0Signal before reshape. TFJS manages it.
-            return stepResult;
         });
 
         // Update state from step
@@ -399,19 +439,24 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             });
             
             const blendedState = tf.tidy(() => tensorLerp(
-                hnm.currentResonantState.current, 
-                newResonantState, 
-                menuSettings.playerInfluence
+                hnm.currentResonantState.current, newResonantState, menuSettings.playerInfluence
             ));
             newResonantState.dispose();
             
             hnm.currentResonantState.current?.dispose();
             hnm.currentResonantState.current = tf.keep(blendedState);
         }
+        
+        const currentStateVector = await hnm.currentResonantState.current.squeeze([0, 1]).data();
+        setHnmStateVector(currentStateVector);
 
         // RAG update
         hnm.activeArtifactInfo.current = await hnm.artifactManager.current!.findRelevantArtifacts(hnm.currentResonantState.current, hnm.embeddingsReady, ARTIFACT_SIMILARITY_THRESHOLD, MAX_ACTIVE_ARTIFACTS_LOGIC);
         
+        // HNM Conductor: Calculate final params and send to audio worklet
+        const modulatedParams = calculateModulatedParams(menuSettings, currentStateVector, menuSettings.hnmModulationDepth);
+        io.updateAudioWorklet(modulatedParams);
+
         // Cleanup
         const l0AnomalyTensor = hnmStepPackage.anomalies['L0_IntentProcessing'];
         hnm.lastL0Anomaly.current = (await l0AnomalyTensor.data())[0];

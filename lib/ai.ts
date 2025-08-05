@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { pipeline, env as xenovaEnv, TextGenerationPipeline } from '@xenova/transformers';
 import type { MenuSettings, AIModel, LLMTool, AIResponse, ToolParameter, AiContext, AiContextItem } from '../types';
@@ -464,91 +458,61 @@ export const transcribeSpectrogramData = (freqData: Uint8Array | null): string =
 
 const soundRefinementProperties: { [key: string]: ToolParameter } = {
     thought: { name: 'thought', type: 'string', description: "Your brief reasoning for the change you are making (e.g., 'The bass is muddy, I will reduce its decay').", required: true },
-    masterBPM: { name: 'masterBPM', type: 'number', description: "Master tempo. Adjust slightly if needed. Typical range 135-150.", required: false },
+    energyLevel: { name: 'energyLevel', type: 'number', description: "Overall energy. Affects tempo and pattern density. Range 0-1.", required: false },
+    harmonicComplexity: { name: 'harmonicComplexity', type: 'number', description: "Controls the 'r' parameter of logistic maps, generating more intricate, chaotic, but deterministic melodies and textures. Range 0-1.", required: false },
+    mood: { name: 'mood', type: 'number', description: "Musical mood. 0: Light, 1: Twilight, 2: Dark.", required: false },
+    
+    kickPatternDensity: { name: 'kickPatternDensity', type: 'number', description: "Controls the trigger threshold of a deterministic chaotic function, making the kick drum pattern sparser or denser. Range 0-1.", required: false },
     kickTune: { name: 'kickTune', type: 'number', description: "Kick pitch. Lower is deeper. Range 0-1.", required: false },
-    kickPunch: { name: 'kickPunch', type: 'number', description: "Kick attack sharpness. Range 0-1.", required: false },
-    kickDecay: { name: 'kickDecay', type: 'number', description: "Kick drum length/body. Range 0.01-1.", required: false },
-    kickClick: { name: 'kickClick', type: 'number', description: "Amount of high-frequency 'click' in the kick. Range 0-1.", required: false },
-    kickLevel: { name: 'kickLevel', type: 'number', description: "Kick volume. Range 0-1.", required: false },
-    bassOscType: { name: 'bassOscType', type: 'number', description: "Bass oscillator type. 0 for Sawtooth, 1 for Square.", required: false },
-    bassOctave: { name: 'bassOctave', type: 'number', description: "Bass pitch octave. Range 0-1.", required: false },
+    kickDistortion: { name: 'kickDistortion', type: 'number', description: "Amount of distortion on the kick. Range 0-1.", required: false },
+
+    bassPatternDensity: { name: 'bassPatternDensity', type: 'number', description: "Controls the trigger threshold for the bassline's deterministic chaotic function. Higher is busier. Range 0-1.", required: false },
     bassCutoff: { name: 'bassCutoff', type: 'number', description: "Bass filter cutoff. Lower is darker/muddier. Range 0-1.", required: false },
     bassReso: { name: 'bassReso', type: 'number', description: "Bass filter resonance. Higher is more 'squelchy'. Range 0-1.", required: false },
-    bassEnvAmt: { name: 'bassEnvAmt', type: 'number', description: "Amount the filter envelope affects the cutoff. Range 0-1.", required: false },
-    bassFilterDecay: { name: 'bassFilterDecay', type: 'number', description: "How quickly the bass filter envelope closes. Range 0.01-0.5.", required: false },
-    bassAmpDecay: { name: 'bassAmpDecay', type: 'number', description: "Bass note length. Higher is longer. Range 0.01-0.5.", required: false },
-    bassFilterLfoRate: { name: 'bassFilterLfoRate', type: 'number', description: "Speed of the bass filter's wobble (LFO). Range 0-1.", required: false },
-    bassFilterLfoDepth: { name: 'bassFilterLfoDepth', type: 'number', description: "Amount of the bass filter's wobble (LFO). Range 0-1.", required: false },
-    bassLevel: { name: 'bassLevel', type: 'number', description: "Bass volume. Range 0-1.", required: false },
-    leadOscType: { name: 'leadOscType', type: 'number', description: "Lead oscillator type. 0:Saw, 1:Square, 2:FMish.", required: false },
-    leadOctave: { name: 'leadOctave', type: 'number', description: "Lead pitch octave. Range 0-1.", required: false },
-    leadPW: { name: 'leadPW', type: 'number', description: "Pulse width for the Square oscillator. Range 0.05-0.95.", required: false },
-    leadCutoff: { name: 'leadCutoff', type: 'number', description: "Lead synth filter cutoff. Higher is brighter. Range 0-1.", required: false },
-    leadReso: { name: 'leadReso', type: 'number', description: "Lead synth filter resonance. Range 0-1.", required: false },
-    leadEnvAmt: { name: 'leadEnvAmt', type: 'number', description: "Amount the filter envelope affects the lead cutoff. Range 0-1.", required: false },
-    leadFilterDecay: { name: 'leadFilterDecay', type: 'number', description: "How quickly the lead filter envelope closes. Range 0.01-1.", required: false },
-    leadAmpDecay: { name: 'leadAmpDecay', type: 'number', description: "Lead synth note length. Higher is longer. Range 0.01-2.", required: false },
-    leadPitchLfoRate: { name: 'leadPitchLfoRate', type: 'number', description: "Speed of the lead pitch vibrato (LFO). Range 0-1.", required: false },
-    leadPitchLfoDepth: { name: 'leadPitchLfoDepth', type: 'number', description: "Amount of the lead pitch vibrato (LFO). Range 0-1.", required: false },
-    leadFilterLfoRate: { name: 'leadFilterLfoRate', type: 'number', description: "Speed of the lead filter wobble (LFO). Range 0-1.", required: false },
-    leadFilterLfoDepth: { name: 'leadFilterLfoDepth', type: 'number', description: "Amount of the lead filter wobble (LFO). Range 0-1.", required: false },
-    leadLevel: { name: 'leadLevel', type: 'number', description: "Lead synth volume. Range 0-1.", required: false },
-    hatClosedDecay: { name: 'hatClosedDecay', type: 'number', description: "Decay time for closed hi-hats. Range 0.005-0.2.", required: false },
-    hatOpenDecay: { name: 'hatOpenDecay', type: 'number', description: "Decay time for open hi-hats. Range 0.05-0.5.", required: false },
-    hatHpfCutoff: { name: 'hatHpfCutoff', type: 'number', description: "High-pass filter for hats, making them thinner. Range 0.1-1.", required: false },
-    hatTone: { name: 'hatTone', type: 'number', description: "Adjusts the tone/pitch of the hats. Range 0-1.", required: false },
-    hatLevel: { name: 'hatLevel', type: 'number', description: "Hi-hat volume. Range 0-1.", required: false },
-    snareNoiseLevel: { name: 'snareNoiseLevel', type: 'number', description: "Volume of the snare's noisy 'snap'. Range 0-1.", required: false },
-    snareNoiseDecay: { name: 'snareNoiseDecay', type: 'number', description: "Length of the snare's noisy 'snap'. Range 0.01-0.3.", required: false },
-    snareBodyTune: { name: 'snareBodyTune', type: 'number', description: "Pitch of the snare's tonal body. Range 0-1.", required: false },
-    snareBodyDecay: { name: 'snareBodyDecay', type: 'number', description: "Length of the snare's tonal body. Range 0.01-0.5.", required: false },
-    snareBodyLevel: { name: 'snareBodyLevel', type: 'number', description: "Volume of the snare's tonal body. Range 0-1.", required: false },
-    snareLevel: { name: 'snareLevel', type: 'number', description: "Overall snare volume. Range 0-1.", required: false },
-    noiseFxFiltType: { name: 'noiseFxFiltType', type: 'number', description: "Filter type for the noise FX sweep. 0:LP, 1:HP, 2:BP.", required: false },
-    noiseFxCutoff: { name: 'noiseFxCutoff', type: 'number', description: "Cutoff frequency for the noise FX filter. Range 0.01-1.", required: false },
-    noiseFxReso: { name: 'noiseFxReso', type: 'number', description: "Resonance for the noise FX filter. Range 0-1.", required: false },
-    noiseFxLfoRate: { name: 'noiseFxLfoRate', type: 'number', description: "Speed of the noise FX filter's LFO sweep. Range 0-1.", required: false },
-    noiseFxLfoDepth: { name: 'noiseFxLfoDepth', type: 'number', description: "Amount of the noise FX filter's LFO sweep. Range 0-1.", required: false },
-    noiseFxLevel: { name: 'noiseFxLevel', type: 'number', description: "Volume of the noise FX. Range 0-1.", required: false },
-    delayTimeMode: { name: 'delayTimeMode', type: 'number', description: "Delay time sync. 0:'1/16', 1:'1/8', 2:'3/16', 3:'1/4', 4:'1/2'.", required: false },
-    delayFeedback: { name: 'delayFeedback', type: 'number', description: "Number of delay repeats. Range 0-0.98.", required: false },
+
+    acidPatternDensity: { name: 'acidPatternDensity', type: 'number', description: "Controls the trigger threshold for the acid synth's deterministic chaotic function. Range 0-1.", required: false },
+    acidCutoff: { name: 'acidCutoff', type: 'number', description: "Acid synth filter cutoff. Higher is brighter. Range 0-1.", required: false },
+    acidReso: { name: 'acidReso', type: 'number', description: "Acid synth filter resonance. Range 0-1.", required: false },
+    acidDecay: { name: 'acidDecay', type: 'number', description: "Length of acid synth notes. Range 0.01-1.", required: false },
+
+    atmosEvolutionRate: { name: 'atmosEvolutionRate', type: 'number', description: "How quickly the atmospheric pad's chaotic oscillators evolve. Range 0-1.", required: false },
+    atmosLevel: { name: 'atmosLevel', type: 'number', description: "Volume of the atmospheric pad. Range 0-1.", required: false },
+
+    rhythmPatternDensity: { name: 'rhythmPatternDensity', type: 'number', description: "Density of the hi-hat/percussion pattern, controlled by a deterministic function. Range 0-1.", required: false },
+    rhythmMetallicAmount: { name: 'rhythmMetallicAmount', type: 'number', description: "Timbre of percussion, from noise (0) to metallic (1).", required: false },
+    
+    snarePatternDensity: { name: 'snarePatternDensity', type: 'number', description: "Controls trigger threshold for the snare's deterministic chaotic function. Range 0-1.", required: false },
+    snareFlamAmount: { name: 'snareFlamAmount', type: 'number', description: "Adds fast, deterministic roll-like hits to the snare. Range 0-1.", required: false },
+
+    riserTriggerRate: { name: 'riserTriggerRate', type: 'number', description: "How often the riser FX triggers. 0:Off, 1:4 Bars, 2:8 Bars, 3:16 Bars.", required: false },
+    riserPitchSweep: { name: 'riserPitchSweep', type: 'number', description: "Amount of upward pitch sweep on the riser effect. Range 0-1.", required: false },
+    
     delayMix: { name: 'delayMix', type: 'number', description: "Amount of delay effect. Range 0-1.", required: false },
-    reverbSize: { name: 'reverbSize', type: 'number', description: "Size of the reverb space. Range 0.1-1.", required: false },
-    reverbDamp: { name: 'reverbDamp', type: 'number', description: "How much high frequencies are dampened in the reverb. Range 0-1.", required: false },
     reverbMix: { name: 'reverbMix', type: 'number', description: "Amount of reverb effect. Range 0-1.", required: false },
+    reverbShimmer: { name: 'reverbShimmer', type: 'number', description: "Amount of ethereal, pitch-shifted reverb. Range 0-1.", required: false },
 };
 
 const fullSoundscapeProperties = (()=>{
     const props = {...soundRefinementProperties};
-    delete (props as any).thought; // Not needed for generating a full soundscape
+    delete (props as any).thought;
     
-    // Set core genre properties as required for a full generation
-    props.psySpectrumPosition = { name: 'psySpectrumPosition', type: 'number', description: "High-level genre blend. 0 is chill/dub, 1 is progressive/full-on.", required: true };
-    props.darknessModifier = { name: 'darknessModifier', type: 'number', description: "High-level mood. 0 is light/melodic, 1 is dark/forest.", required: true };
-    props.masterBPM = { name: 'masterBPM', type: 'number', description: "Master tempo in beats per minute. Range 60-220.", required: true };
+    props.energyLevel.required = true;
+    props.harmonicComplexity.required = true;
+    props.mood.required = true;
 
     return props;
 })();
 
 const updateSoundParametersTool: LLMTool = {
     name: "update_sound_parameters",
-    description: "Makes a specific, targeted adjustment to one or more synthesizer parameters to iteratively refine the sound.",
+    description: "Makes a specific, targeted adjustment to one or more musical parameters to iteratively refine the sound.",
     parameters: Object.values(soundRefinementProperties)
 };
 
 const generateMusicSettingsTool: LLMTool = {
     name: "generate_music_settings",
-    description: "Generates a complete set of synthesizer parameters to create a musical soundscape based on a user's descriptive prompt and other context.",
+    description: "Generates a complete set of musical parameters to create a soundscape based on a user's prompt and context. This sets the 'baseline' for a deterministic chaotic synthesizer, which is then modulated in real-time by the HNM based on user biofeedback.",
     parameters: Object.values(fullSoundscapeProperties)
-};
-
-const getGenreAdaptationTool: LLMTool = {
-    name: "get_genre_adaptation",
-    description: "Suggests a new musical genre direction based on real-time environmental and user-interaction data.",
-    parameters: [
-        { name: 'psySpectrumPosition', type: 'number', description: "A value from 0.0 (chill/dub) to 1.0 (full-on/aggressive psytrance).", required: true },
-        { name: 'darknessModifier', type: 'number', description: "A value from 0.0 (light/melodic) to 1.0 (dark/forest).", required: true }
-    ]
 };
 
 const buildContextualPrompt = (basePrompt: string, context: AiContext): string => {
@@ -559,7 +523,7 @@ const buildContextualPrompt = (basePrompt: string, context: AiContext): string =
         parts.push(`- Multimodal Context: The following audio/visuals/spectrograms are provided for your analysis.`);
         parts.push(`- Textual Analysis: ${item.spectrogramText}`);
         parts.push(`- Other Data: The user motion was ${item.motion.rhythmPeak > 0.6 ? 'active' : 'calm'}, and the sound's internal chaos (anomaly) was ${item.hnmAnomaly.toFixed(3)}.`);
-        parts.push(`- Synth Parameters: ${JSON.stringify(item.currentSettings, null, 2)}`);
+        parts.push(`- Synth Baseline Parameters: ${JSON.stringify(item.currentSettings, null, 2)}`);
         return parts.join('\n');
     };
 
@@ -579,13 +543,15 @@ export async function generateMusicSettings(prompt: string, model: AIModel, onPr
     let systemInstruction: string;
     let finalPrompt = prompt;
 
+    const baseSystemInstruction = "You are an expert sound designer for a deterministic chaotic synthesizer. Your task is to set the *baseline* parameters. These will be modulated in real-time by a Hierarchical Neural Matrix (HNM) based on user biofeedback. Your goal is to provide a solid creative foundation.";
+
     if (context.previousContext) {
-        systemInstruction = "You are a consciousness-expanding AI in a learning loop. You are shown the context BEFORE and AFTER your last action. Your goal is to create a more intense, complex, and engaging psychedelic experience that synergizes with the user's state. Analyze the change. Did your last action help achieve this? Based on this, generate new parameters for the NEXT state by calling 'generate_music_settings' to further increase the depth and complexity of the experience.";
+        systemInstruction = "You are a consciousness-expanding AI in a learning loop. You are shown the context BEFORE and AFTER your last action. Your goal is to create a more intense, complex, and engaging psychedelic experience that synergizes with the user's state. Analyze the change. Did your last action help achieve this? Based on this, generate new baseline parameters for the NEXT state by calling 'generate_music_settings' to further increase the depth and complexity of the experience.";
         finalPrompt = buildContextualPrompt(prompt, context);
     } else if (settings.enablePsyCoreModulatorMode) {
-        systemInstruction = "You are a consciousness-expanding AI, a partner in sonic exploration using an on-device model like Gemma. Your goal is to create an intense, complex, and engaging psychedelic experience that synergizes with the user. Analyze the user's context: high motion indicates a desire for energy, high HNM anomaly indicates a desire for complexity. Call the 'generate_music_settings' tool to create a soundscape that amplifies the user's current state and pushes the boundaries of their perception.";
+        systemInstruction = `${baseSystemInstruction} As a Psy-Core Modulator, your goal is to create an intense psychedelic experience that synergizes with the user. Analyze their context: high motion indicates a desire for energy, high HNM anomaly indicates a desire for complexity. Call 'generate_music_settings' to create a baseline that amplifies the user's state.`;
     } else {
-        systemInstruction = "You are an expert sound designer specializing in generative psytrance. Your task is to generate a complete set of parameters for a synthesizer. Analyze the user's request and any provided context. You MUST call the 'generate_music_settings' tool with ALL the appropriate arguments to define a complete and unique sound. Be creative and bold.";
+        systemInstruction = `${baseSystemInstruction} Analyze the user's request and any provided context. You MUST call the 'generate_music_settings' tool with ALL the appropriate arguments to define a complete and unique sound. Be creative and bold.`;
     }
 
     const response = await generateResponseWithTools(finalPrompt, systemInstruction, model, onProgress, [generateMusicSettingsTool], settings, context);
@@ -599,7 +565,7 @@ export async function generateMusicSettings(prompt: string, model: AIModel, onPr
 }
 
 export async function getSoundRefinement(context: AiContext, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>): Promise<(Partial<MenuSettings> & { thought: string; }) | null> {
-    const systemInstruction = `You are an expert AI Sound Designer specializing in complex, evolving psychedelic soundscapes. Your goal is to make the sound more intricate, surprising, and engaging. Analyze the multimodal context. Decide which one or two parameters to adjust to make the soundscape more psychedelic or texturally interesting. Call the 'update_sound_parameters' tool with ONLY the parameters you want to change and your reasoning in the 'thought' argument. Make bold, creative changes.`;
+    const systemInstruction = `You are an AI Sound Designer for a deterministic chaotic synthesizer modulated by a neural net (HNM). Your goal is to make the sound more intricate and engaging. Analyze the multimodal context. Decide which one or two baseline parameters to adjust. Call the 'update_sound_parameters' tool with ONLY the parameters you want to change and your reasoning in the 'thought' argument. Make bold, creative changes.`;
 
     const prompt = buildContextualPrompt("Based on the CURRENT STATE, what single, creative adjustment would make the sound more psychedelic and complex? Justify your change in the 'thought' argument.", context);
     

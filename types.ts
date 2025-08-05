@@ -1,65 +1,102 @@
 
 
 
+
 export interface MenuSettings {
     playerInfluence: number;
-    genreRuleInfluence: number;
+    hnmModulationDepth: number;
     micFeedbackToL0Strength: number;
     explorationInfluence: number;
-    psySpectrumPosition: number;
-    darknessModifier: number;
+    
+    // --- Psy-Tek Generative Framework ---
+    energyLevel: number;
+    harmonicComplexity: number;
+    mood: number; // 0: Light, 1: Twilight, 2: Dark
     masterBPM: number;
+    
+    // KICK
+    kickPatternDensity: number;
     kickTune: number;
-    kickPunch: number;
-    kickDecay: number;
-    kickClick: number;
+    kickAttack: number;
+    kickPitchDecay: number;
+    kickAmpDecay: number;
+    kickDistortion: number;
     kickLevel: number;
-    bassOscType: number;
-    bassOctave: number;
+    
+    // BASS
+    bassPatternDensity: number;
+    bassOscType: number; // 0: Saw, 1: Square
+    bassSubOscLevel: number;
+    bassOctave: number; // 0: Sub-2, 1: Sub-1, 2: Root
+    bassPW: number;
+    bassGlide: number;
     bassCutoff: number;
     bassReso: number;
     bassEnvAmt: number;
+    bassFilterKeyTrack: number;
     bassFilterDecay: number;
     bassAmpDecay: number;
-    bassFilterLfoRate: number;
-    bassFilterLfoDepth: number;
     bassLevel: number;
-    leadOscType: number;
-    leadOctave: number;
-    leadPW: number;
-    leadCutoff: number;
-    leadReso: number;
-    leadEnvAmt: number;
-    leadFilterDecay: number;
-    leadAmpDecay: number;
-    leadPitchLfoRate: number;
-    leadPitchLfoDepth: number;
-    leadFilterLfoRate: number;
-    leadFilterLfoDepth: number;
-    leadLevel: number;
-    hatClosedDecay: number;
-    hatOpenDecay: number;
-    hatHpfCutoff: number;
-    hatTone: number;
-    hatLevel: number;
+    
+    // ACID SYNTH (formerly part of Lead)
+    acidPatternDensity: number;
+    acidOctave: number; // 0: Low, 1: Mid, 2: High
+    acidCutoff: number;
+    acidReso: number;
+    acidEnvAmt: number;
+    acidDecay: number;
+    acidAccentAmount: number;
+    acidLevel: number;
+
+    // ATMOS PAD (formerly part of Lead)
+    atmosOscType: number; // 0: Saw, 1: FMish
+    atmosEvolutionRate: number;
+    atmosCutoff: number;
+    atmosReso: number;
+    atmosSpread: number;
+    atmosLevel: number;
+
+    // RHYTHM SYNTH (formerly Hi-Hats)
+    rhythmPatternDensity: number;
+    rhythmClosedDecay: number;
+    rhythmOpenDecay: number;
+    rhythmHpfCutoff: number;
+    rhythmMetallicAmount: number;
+    rhythmLevel: number;
+
+    // SNARE
+    snarePatternDensity: number;
+    snareFlamAmount: number;
     snareNoiseLevel: number;
     snareNoiseDecay: number;
+    snareNoiseCutoff: number;
     snareBodyTune: number;
     snareBodyDecay: number;
     snareBodyLevel: number;
     snareLevel: number;
-    noiseFxFiltType: number;
-    noiseFxCutoff: number;
-    noiseFxReso: number;
-    noiseFxLfoRate: number;
-    noiseFxLfoDepth: number;
-    noiseFxLevel: number;
+
+    // RISER FX (formerly Noise FX)
+    riserTriggerRate: number; // 0:Off, 1:4bars, 2:8bars, 3:16bars
+    riserAttack: number;
+    riserDecay: number;
+    riserPitchSweep: number;
+    riserCutoff: number;
+    riserReso: number;
+    riserLevel: number;
+
+    // MASTER FX BUS
     delayTimeMode: number;
     delayFeedback: number;
+    delayFilterCutoff: number;
+    delayStereo: number;
     delayMix: number;
     reverbSize: number;
     reverbDamp: number;
+    reverbPreDelay: number;
+    reverbShimmer: number;
     reverbMix: number;
+
+    // App & AI Settings
     enableSpeechCommands: boolean;
     enableTapReset: boolean;
     enablePsyCoreModulatorMode: boolean;
@@ -197,7 +234,7 @@ export interface ToolParameter {
 
 export interface LLMTool {
   id?: string;
-  name: string;
+  name:string;
   description: string;
   parameters: ToolParameter[];
   category?: 'Server' | 'Client';

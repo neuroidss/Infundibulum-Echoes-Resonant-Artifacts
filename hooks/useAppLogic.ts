@@ -1,8 +1,8 @@
 
+
 import { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { useInfundibulum } from './useInfundibulum'; // This will be the new, lean orchestrator
-import type { MenuSettings, GenreEditState, InputState, ActiveArtifactInfo, HnmState, HnmLastStepOutputs } from '../types';
+import type { ActiveArtifactInfo } from '../types';
 import { lerp } from '../lib/utils';
 import { TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, SYNC_DECAY, STATE_VECTOR_SIZE } from '../constants';
 
@@ -39,14 +39,11 @@ const fragmentShader = (MAX_ARTIFACTS_SHADER: number) => `
 
 export const useRenderLoop = (
     canvasRef: React.RefObject<HTMLCanvasElement>,
-    getMenuSettings: () => MenuSettings,
-    getInputState: () => InputState,
     getHnmOutputs: () => {
-        currentResonantState: any, // tf.Tensor
+        currentResonantStateVector: number[],
         activeArtifactInfo: ActiveArtifactInfo,
         lastL0Anomaly: number
     },
-    updateAudioWorklet: (state: any, complexity: number) => void,
     setDebugInfo: (info: string) => void,
 ) => {
     const renderer = useRef<THREE.WebGLRenderer | null>(null);
@@ -65,19 +62,17 @@ export const useRenderLoop = (
     const complexityLevel = useRef(0.5);
     const syncFactor = useRef(0.0);
 
-    const renderDependencies = useRef({ getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo });
-    renderDependencies.current = { getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo };
+    const renderDependencies = useRef({ getHnmOutputs, setDebugInfo });
+    renderDependencies.current = { getHnmOutputs, setDebugInfo };
 
     const gameLoop = useCallback(async (timestamp: number) => {
-        const { getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo } = renderDependencies.current;
+        const { getHnmOutputs, setDebugInfo } = renderDependencies.current;
 
         if (!frameInfo.current.isLooping || !renderer.current || !scene.current || !camera.current || !material.current) return;
         
         requestAnimationFrame(gameLoop);
 
-        const menuSettings = getMenuSettings();
-        const inputState = getInputState();
-        const { currentResonantState, activeArtifactInfo, lastL0Anomaly } = getHnmOutputs();
+        const { currentResonantStateVector, activeArtifactInfo, lastL0Anomaly } = getHnmOutputs();
 
         // Timing and FPS
         const currentTime = timestamp / 1000.0;
@@ -90,18 +85,11 @@ export const useRenderLoop = (
             frameInfo.current.frameCount = 0;
         }
         
-        // State updates
-        const micRhythmPeak = inputState.mic.rhythmPeak;
-        const accelRhythmPeak = inputState.accelerometer.rhythmPeak;
-        syncFactor.current = lerp(syncFactor.current, (micRhythmPeak > SYNC_THRESHOLD && accelRhythmPeak > SYNC_THRESHOLD) ? 1.0 : 0.0, 0.05);
-        syncFactor.current *= SYNC_DECAY;
-        inputState.syncFactor = syncFactor.current;
+        // State updates for visuals
         complexityLevel.current = lerp(complexityLevel.current, lastL0Anomaly, 0.01);
         
-        if (currentResonantState && !currentResonantState.isDisposed) {
-            const stateArray = await currentResonantState.squeeze([0, 1]).data();
-            updateAudioWorklet(stateArray, complexityLevel.current);
-            material.current.uniforms.mainState.value = stateArray;
+        if (currentResonantStateVector) {
+            material.current.uniforms.mainState.value = currentResonantStateVector;
             material.current.uniforms.numActiveArtifacts.value = activeArtifactInfo.ids.length;
 
             if (activeArtifactInfo.ids.length > 0) {
@@ -112,13 +100,14 @@ export const useRenderLoop = (
         }
         
         material.current.uniforms.time.value = currentTime;
-        material.current.uniforms.syncFactor.value = syncFactor.current;
+        // syncFactor is now calculated inside the shader based on HNM state if needed, or can be derived from specific state vector elements
+        material.current.uniforms.syncFactor.value = currentResonantStateVector?.[28] || 0.0;
         material.current.uniforms.complexity.value = complexityLevel.current;
         
         renderer.current.render(scene.current, camera.current);
 
         if (USE_DEBUG) {
-            setDebugInfo(`FPS: ${frameInfo.current.currentFPS.toFixed(1)} | Sync: ${syncFactor.current.toFixed(2)} | Complexity: ${complexityLevel.current.toFixed(3)} | Arts: ${activeArtifactInfo.ids.length}`);
+            setDebugInfo(`FPS: ${frameInfo.current.currentFPS.toFixed(1)} | Comp: ${complexityLevel.current.toFixed(3)} | Arts: ${activeArtifactInfo.ids.length}`);
         }
 
     }, []);
