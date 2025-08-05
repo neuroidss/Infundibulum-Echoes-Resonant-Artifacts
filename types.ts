@@ -205,4 +205,5 @@ export interface AiContext {
     hnmAnomaly: number;
     currentSettings: Partial<MenuSettings>;
     audioClip?: { mimeType: string, data: string } | null;
+    imageClip?: { mimeType: string, data: string } | null;
 }

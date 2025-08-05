@@ -1,4 +1,5 @@
 
+
 import { useRef, useCallback, useEffect } from 'react';
 import type { MenuSettings, AiContext } from '../types';
 import { AI_MODELS } from '../constants';
@@ -14,11 +15,12 @@ interface UseAiFeaturesProps {
     getInputState: () => Pick<AiContext, 'mic' | 'motion'>;
     getHnmAnomaly: () => number;
     captureAudioClip: () => Promise<{ mimeType: string, data: string } | null>;
+    captureImageClip: () => { mimeType: string, data: string } | null;
 }
 
 export const useAiFeatures = ({
     menuSettings, isAiDisabled, showWarning, showLoading, setMenuSettings,
-    handleMenuSettingChange, getInputState, getHnmAnomaly, captureAudioClip
+    handleMenuSettingChange, getInputState, getHnmAnomaly, captureAudioClip, captureImageClip
 }: UseAiFeaturesProps) => {
 
     const aiCopilotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -72,9 +74,12 @@ export const useAiFeatures = ({
             if (!selectedModel) throw new Error("No AI model selected for Co-pilot.");
 
             let audioClip: { mimeType: string; data: string } | null = null;
-            if (selectedModel.audioSupport) {
-                showLoading(true, 'Recording audio...');
+            let imageClip: { mimeType: string; data: string } | null = null;
+
+            if (selectedModel.audioSupport) { // Assume models with audio also benefit from image
+                showLoading(true, 'Capturing context...');
                 audioClip = await captureAudioClip();
+                imageClip = captureImageClip();
                 if (!audioClip) showWarning("Failed to record audio clip, using fallback.", 3000);
             }
             
@@ -88,7 +93,8 @@ export const useAiFeatures = ({
                 motion,
                 hnmAnomaly: getHnmAnomaly(),
                 currentSettings: currentRelevantSettings,
-                audioClip: audioClip,
+                audioClip,
+                imageClip,
             };
 
             const result = await getSoundRefinement(context, selectedModel, (msg) => handleAiProgress(`Co-pilot: ${msg}`), menuSettings);
@@ -116,7 +122,7 @@ export const useAiFeatures = ({
             isCopilotThinkingRef.current = false;
             showLoading(false);
         }
-    }, [isAiDisabled, menuSettings, handleAiProgress, showWarning, showLoading, captureAudioClip, getInputState, getHnmAnomaly, handleMenuSettingChange, setMenuSettings]);
+    }, [isAiDisabled, menuSettings, handleAiProgress, showWarning, showLoading, captureAudioClip, captureImageClip, getInputState, getHnmAnomaly, handleMenuSettingChange, setMenuSettings]);
 
     // This effect manages the Co-pilot interval
     useEffect(() => {

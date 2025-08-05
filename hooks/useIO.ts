@@ -1,4 +1,5 @@
 
+
 import { useRef, useCallback } from 'react';
 import type { InputState, MenuSettings } from '../types';
 import { MIC_FFT_SIZE, ACCEL_FFT_SIZE, LONG_PRESS_DURATION_MS, RESET_SECOND_TAP_WINDOW_MS, FULLSCREEN_REQUESTED_KEY } from '../constants';
@@ -79,6 +80,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
     const audioCaptureDestination = useRef<MediaStreamAudioDestinationNode | null>(null);
     const speechController = useRef<SpeechRecognitionController | null>(null);
     const visualFeedback = useRef({ active: false, intensity: 0, startTime: 0, duration: 0.1 });
+    const canvasRefForIO = useRef<HTMLCanvasElement | null>(null);
 
     const initAudio = useCallback(async (): Promise<boolean> => {
         if (audioContext.current) return true;
@@ -122,6 +124,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
     }, [showWarning]);
 
     const initialize = useCallback((canvas: HTMLCanvasElement, onInteraction: () => void) => {
+        canvasRefForIO.current = canvas;
         speechController.current = new SpeechRecognitionController(onSpeechCommand, setSpeechStatus, (msg) => showWarning(msg, 6000));
         
         const resetGestureState = { pointerDownTime: 0, longPressDetected: false, longPressReleaseTime: 0, resetTimeout: null as ReturnType<typeof setTimeout> | null };
@@ -230,6 +233,24 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         });
     }, []);
 
+    const captureImageClip = useCallback((): { mimeType: string; data: string } | null => {
+        if (!canvasRefForIO.current) {
+            console.error("Canvas for image capture is not available.");
+            return null;
+        }
+        try {
+            const dataUrl = canvasRefForIO.current.toDataURL('image/jpeg', 0.8);
+            const [header, data] = dataUrl.split(',');
+            if (!data) return null;
+            const mimeType = header.split(':')[1].split(';')[0];
+            return { mimeType, data };
+        } catch (e) {
+            console.error("Failed to capture image from canvas:", e);
+            return null;
+        }
+    }, []);
+
+
     const triggerVisualFeedback = (intensity = 0.5, duration = 0.1) => {
         visualFeedback.current = {
             active: true,
@@ -245,6 +266,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         initialize,
         updateAudioWorklet,
         captureAudioClip,
+        captureImageClip,
         speechController,
         triggerVisualFeedback,
         visualFeedback,

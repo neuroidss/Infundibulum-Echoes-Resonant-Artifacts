@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import {
     VERSION, STATE_VECTOR_SIZE, LOCAL_STORAGE_KEY, LOCAL_STORAGE_MENU_KEY,
@@ -54,6 +55,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer }),
         getHnmAnomaly: () => hnm.lastL0Anomaly.current,
         captureAudioClip: io.captureAudioClip,
+        captureImageClip: io.captureImageClip,
     });
     
     const renderLoop = useRenderLoop(

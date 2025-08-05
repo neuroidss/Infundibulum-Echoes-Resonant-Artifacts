@@ -64,16 +64,26 @@ namespace GeminiService {
         return { textResponse: response.text };
     };
 
-    export const generateWithNativeTools = async (userInput: string, systemInstruction: string, modelId: string, relevantTools: LLMTool[], settings: Partial<MenuSettings>, audioClip: { mimeType: string; data: string } | null): Promise<AIResponse> => {
+    export const generateWithNativeTools = async (userInput: string, systemInstruction: string, modelId: string, relevantTools: LLMTool[], settings: Partial<MenuSettings>, context: AiContext): Promise<AIResponse> => {
         const ai = getAIClient(settings);
         const { functionDeclarations, toolNameMap } = buildGeminiTools(relevantTools);
         
         const userParts: Part[] = [];
-        if (audioClip) {
+
+        if (context.imageClip) {
             userParts.push({
                 inlineData: {
-                    mimeType: audioClip.mimeType,
-                    data: audioClip.data
+                    mimeType: context.imageClip.mimeType,
+                    data: context.imageClip.data,
+                }
+            })
+        }
+
+        if (context.audioClip) {
+            userParts.push({
+                inlineData: {
+                    mimeType: context.audioClip.mimeType,
+                    data: context.audioClip.data
                 }
             });
         }
@@ -101,7 +111,7 @@ namespace OpenAIService {
         return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
     };
 
-    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, settings: Partial<MenuSettings>): Promise<string> => {
+    export const generateJsonOutput = async (userInput: string | any[], systemInstruction: string, modelId: string, settings: Partial<MenuSettings>): Promise<string> => {
         const apiKey = settings.openAiApiKey || process.env.OPENAI_API_KEY;
         const baseUrl = settings.openAiBaseUrl || process.env.OPENAI_BASE_URL;
         if (!apiKey) throw new Error("OpenAI API Key missing from GUI or environment variable OPENAI_API_KEY.");
@@ -134,18 +144,36 @@ namespace OllamaService {
         return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
     };
     
-    export const generateJsonOutput = async (userInput: string, systemInstruction: string, modelId: string, settings: Partial<MenuSettings>): Promise<string> => {
+    export const generateJsonOutput = async (userInput: string | any[], systemInstruction: string, modelId: string, settings: Partial<MenuSettings>): Promise<string> => {
         const host = settings.ollamaHost || process.env.OLLAMA_HOST;
         if (!host) throw new Error("Ollama Host URL missing from GUI or environment variable OLLAMA_HOST.");
         
-        const body = {
+        let promptText: string;
+        let images: string[] = [];
+
+        if (Array.isArray(userInput)) {
+            promptText = userInput.find(p => p.type === 'text')?.text || '';
+            images = userInput
+                .filter(p => p.type === 'image_url')
+                .map(p => p.image_url.url.split(',')[1]) // get base64 data
+                .filter(d => d); // filter out null/undefined
+        } else {
+            promptText = userInput;
+        }
+
+        const body: any = {
             model: modelId,
             system: systemInstruction,
-            prompt: userInput,
+            prompt: promptText,
             stream: false,
             format: 'json',
             options: { temperature: 0.2 },
         };
+        
+        if (images.length > 0) {
+            body.images = images;
+        }
+
         const response = await fetchWithTimeout(
             `${(host).replace(/\/+$/, '')}/api/generate`,
             { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -235,7 +263,7 @@ export const generateResponseWithTools = async (
     onProgress: (message: string) => void,
     relevantTools: LLMTool[],
     settings: Partial<MenuSettings>,
-    audioClip: { mimeType: string, data: string } | null = null
+    context: AiContext,
 ): Promise<AIResponse> => {
     onProgress(`Using ${model.provider} (${model.id})...`);
     const shortUserInput = userInput.length > 200 ? `${userInput.substring(0, 200)}...` : userInput;
@@ -244,7 +272,7 @@ export const generateResponseWithTools = async (
         switch (model.provider) {
             case ModelProvider.GoogleAI: {
                 onProgress(`Calling Gemini. Prompt: ${shortUserInput.replace(/\n/g, ' ')}`);
-                const geminiResponse = await GeminiService.generateWithNativeTools(userInput, systemInstruction, model.id, relevantTools, settings, audioClip);
+                const geminiResponse = await GeminiService.generateWithNativeTools(userInput, systemInstruction, model.id, relevantTools, settings, context);
                 if (geminiResponse.toolCall) {
                     onProgress(`Gemini replied with tool: ${geminiResponse.toolCall.name}`);
                 } else {
@@ -255,22 +283,41 @@ export const generateResponseWithTools = async (
 
             case ModelProvider.OpenAI_API:
             case ModelProvider.Ollama: {
-                if (audioClip) onProgress("Warning: This model provider does not support audio input. Analyzing text context only.");
                 if (relevantTools.length !== 1) {
-                    throw new Error("OpenAI/Ollama implementation currently supports exactly one tool.");
+                    throw new Error("This OpenAI/Ollama implementation currently supports exactly one tool.");
                 }
                 const tool = relevantTools[0];
                 const paramsSchema = tool.parameters.map(p => `  "${p.name}": // type: ${p.type}, description: ${p.description}${p.required ? ' (required)' : ''}`).join('\n');
                 const fullSystemInstruction = `${systemInstruction}\n\nYou MUST respond with a single, valid JSON object containing the arguments for the '${tool.name}' tool. Do not add any other text, explanation, or markdown formatting. The required arguments are:\n{\n${paramsSchema}\n}`;
     
+                const userContent: any[] = [{ type: 'text', text: userInput }];
+                 if (context.imageClip) {
+                    userContent.push({
+                        type: 'image_url',
+                        image_url: { url: `data:${context.imageClip.mimeType};base64,${context.imageClip.data}` }
+                    });
+                    onProgress("Attached image to prompt.");
+                }
+                if (context.audioClip) {
+                     if (model.provider === ModelProvider.Ollama) {
+                        onProgress("Warning: Ollama provider doesn't support audio clips, ignoring.");
+                     } else {
+                        userContent.push({
+                            type: 'image_url', // Using image_url for audio data URI as per convention for custom multimodal servers
+                            image_url: { url: `data:${context.audioClip.mimeType};base64,${context.audioClip.data}` }
+                        });
+                        onProgress("Attached audio to prompt.");
+                    }
+                }
+
                 let responseText = "{}";
                 if (model.provider === ModelProvider.OpenAI_API) {
                     onProgress(`Calling OpenAI API. Prompt: ${shortUserInput.replace(/\n/g, ' ')}`);
-                    responseText = await OpenAIService.generateJsonOutput(userInput, fullSystemInstruction, model.id, settings);
+                    responseText = await OpenAIService.generateJsonOutput(userContent, fullSystemInstruction, model.id, settings);
                     onProgress(`OpenAI response received.`);
                 } else { // Ollama
                     onProgress(`Calling Ollama. Prompt: ${shortUserInput.replace(/\n/g, ' ')}`);
-                    responseText = await OllamaService.generateJsonOutput(userInput, fullSystemInstruction, model.id, settings);
+                    responseText = await OllamaService.generateJsonOutput(userContent, fullSystemInstruction, model.id, settings);
                     onProgress(`Ollama response received.`);
                 }
     
@@ -284,7 +331,7 @@ export const generateResponseWithTools = async (
             }
     
             case ModelProvider.HuggingFace: {
-                if (audioClip) onProgress("Warning: This model provider does not support audio input. Analyzing text context only.");
+                if (context.audioClip || context.imageClip) onProgress("Warning: This model provider does not support audio/image input. Analyzing text context only.");
                 onProgress(`Loading local HuggingFace model...`);
                 const toolsForPrompt = relevantTools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters }));
                 const toolDefinitions = JSON.stringify(toolsForPrompt, null, 2);
@@ -363,7 +410,9 @@ const getGenreAdaptationTool: LLMTool = {
 export async function generateMusicSettings(prompt: string, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>): Promise<Partial<MenuSettings>> {
     const systemInstruction = `You are an expert sound designer specializing in generative psytrance and ambient music. Your task is to generate a complete set of parameters for a complex synthesizer to match the user's request. Call the 'generate_music_settings' tool with the appropriate arguments. Be creative and bold with the parameters to create a unique sound.`;
     
-    const response = await generateResponseWithTools(prompt, systemInstruction, model, onProgress, [generateMusicSettingsTool], settings);
+    // For this tool, we don't need audio/image context.
+    const emptyContext: AiContext = { mic: {} as any, motion: {} as any, hnmAnomaly: 0, currentSettings: {} };
+    const response = await generateResponseWithTools(prompt, systemInstruction, model, onProgress, [generateMusicSettingsTool], settings, emptyContext);
 
     if (response.toolCall?.name === 'generate_music_settings' && response.toolCall.arguments) {
         return response.toolCall.arguments;
@@ -374,26 +423,26 @@ export async function generateMusicSettings(prompt: string, model: AIModel, onPr
 }
 
 export async function getSoundRefinement(context: AiContext, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>): Promise<(Partial<MenuSettings> & { thought: string; }) | null> {
-    const systemInstruction = `You are an expert AI Sound Designer. Your goal is to iteratively refine the sound of a complex synthesizer to make it more musical, balanced, and interesting. You will be given context, including potentially an audio clip of the current sound. Based on all available information, decide which one or two parameters to adjust to improve the sound. Call the 'update_sound_parameters' tool with ONLY the parameters you want to change and your reasoning in the 'thought' argument. Make small, subtle changes.`;
+    const systemInstruction = `You are an expert AI Sound Designer. Your goal is to iteratively refine the sound of a complex synthesizer to make it more musical, balanced, and interesting. You will be given multimodal context, including an image of the visuals and an audio clip of the current sound. Based on all available information, decide which one or two parameters to adjust to improve the sound. Call the 'update_sound_parameters' tool with ONLY the parameters you want to change and your reasoning in the 'thought' argument. Make small, subtle changes.`;
 
     const micEnergyDesc = context.mic.rhythmPeak > 0.6 ? 'high' : context.mic.rhythmPeak > 0.3 ? 'medium' : 'low';
     const hnmStabilityDesc = context.hnmAnomaly < 0.01 ? 'very stable' : context.hnmAnomaly < 0.05 ? 'stable' : 'chaotic';
     const currentParamsString = JSON.stringify(context.currentSettings);
     
     let prompt: string;
-    if (context.audioClip) {
+    if (context.audioClip || context.imageClip) {
         prompt = `CONTEXT:
-- An audio clip of the current sound is provided. This is your PRIMARY source of truth. Please listen to it carefully.
+- An audio clip and/or a visual snapshot of the current experience is provided. This is your PRIMARY source of truth. Please analyze it carefully.
 - The sound's internal state is ${hnmStabilityDesc}.
 - Ambient audio feedback: The detected rhythm is ${context.mic.rhythmTempo.toFixed(0)} BPM with ${micEnergyDesc} energy.
-- For your reference, here is the text-based description of the synth parameters that a non-audio model would see. Use this for context or to confirm your audio analysis, but prioritize what you hear:
+- For your reference, here is the text-based description of the synth parameters that a non-multimodal model would see. Use this for context or to confirm your analysis, but prioritize what you hear and see:
   - Current Parameters: ${currentParamsString}
 
 ANALYSIS & ACTION:
-Based PRIMARILY on the provided audio clip, what is a single, small adjustment that would improve the sound? Your goal is to make it more musical. For example, if the bass sounds muddy in the clip, reduce 'bassAmpDecay'. If the lead is too piercing, lower 'leadCutoff'. Justify your change in the 'thought' argument.`;
+Based PRIMARILY on the provided audio/visuals, what is a single, small adjustment that would improve the sound? Your goal is to make it more musical. For example, if the bass sounds muddy in the clip, reduce 'bassAmpDecay'. If the visuals are bright but the lead is dark, raise 'leadCutoff'. Justify your change in the 'thought' argument.`;
     } else {
         prompt = `CONTEXT:
-- You are operating without audio input. Rely solely on this text description.
+- You are operating without multimodal input. Rely solely on this text description.
 - Current State: The sound is ${hnmStabilityDesc}.
 - Audio Feedback: The detected rhythm is ${context.mic.rhythmTempo.toFixed(0)} BPM with ${micEnergyDesc} energy.
 - Current Parameters: ${currentParamsString}
@@ -402,7 +451,7 @@ ANALYSIS & ACTION:
 Based on the text context, what is a single, small adjustment that would improve the sound? For example, if the bass is too loud, reduce 'bassLevel'. If the sound is too chaotic, maybe reduce a decay time or an LFO depth. Justify your change in the 'thought' argument.`;
     }
 
-    const response = await generateResponseWithTools(prompt, systemInstruction, model, onProgress, [updateSoundParametersTool], settings, context.audioClip);
+    const response = await generateResponseWithTools(prompt, systemInstruction, model, onProgress, [updateSoundParametersTool], settings, context);
 
     if (response.toolCall?.name === 'update_sound_parameters' && response.toolCall.arguments) {
         return response.toolCall.arguments;
@@ -413,7 +462,7 @@ Based on the text context, what is a single, small adjustment that would improve
 }
 
 export async function getGenreAdaptation(context: AiContext, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>): Promise<{ psySpectrumPosition: number; darknessModifier: number } | null> {
-    const systemInstruction = `You are an intelligent DJ assistant. Your goal is to subtly guide the musical genre. Based on the user's activity and environment (and an audio clip, if provided), call the 'get_genre_adaptation' tool to suggest a new target 'psySpectrumPosition' (0=chill, 1=full-on) and 'darknessModifier' (0=light, 1=dark).`;
+    const systemInstruction = `You are an intelligent DJ assistant. Your goal is to subtly guide the musical genre. Based on the user's activity and environment (and multimodal context, if provided), call the 'get_genre_adaptation' tool to suggest a new target 'psySpectrumPosition' (0=chill, 1=full-on) and 'darknessModifier' (0=light, 1=dark).`;
 
     const micEnergyDesc = context.mic.rhythmPeak > 0.6 ? 'high' : context.mic.rhythmPeak > 0.3 ? 'medium' : 'low';
     const motionEnergyDesc = context.motion.rhythmPeak > 0.6 ? 'very active' : 'calm';
@@ -424,20 +473,20 @@ export async function getGenreAdaptation(context: AiContext, model: AIModel, onP
 - Current Synth Tempo: ${context.currentSettings.masterBPM?.toFixed(0)} BPM.`;
 
     let prompt: string;
-    if (context.audioClip) {
+    if (context.audioClip || context.imageClip) {
         prompt = `Context:
-- An audio clip of the current music is provided. Listen to its energy and mood as your PRIMARY source of truth.
-- For reference, here is the text-based context a non-audio model would see:
+- An audio clip and/or visual snapshot of the current music is provided. Analyze its energy and mood as your PRIMARY source of truth.
+- For reference, here is the text-based context a non-multimodal model would see:
 ${textContext}
-Based PRIMARILY on the audio clip and all available context, what is the ideal genre direction to shift towards?`;
+Based PRIMARILY on the provided context, what is the ideal genre direction to shift towards?`;
     } else {
         prompt = `Context:
-- You are operating without audio input. Rely solely on this text description.
+- You are operating without multimodal input. Rely solely on this text description.
 ${textContext}
 Based on this text context, what is the ideal genre direction?`;
     }
     
-    const response = await generateResponseWithTools(prompt, systemInstruction, model, onProgress, [getGenreAdaptationTool], settings, context.audioClip);
+    const response = await generateResponseWithTools(prompt, systemInstruction, model, onProgress, [getGenreAdaptationTool], settings, context);
 
     if (response.toolCall?.name === 'get_genre_adaptation' && response.toolCall.arguments) {
         const { psySpectrumPosition, darknessModifier } = response.toolCall.arguments;
