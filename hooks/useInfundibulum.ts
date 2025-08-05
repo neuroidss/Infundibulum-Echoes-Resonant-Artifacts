@@ -1,7 +1,4 @@
 
-
-
-
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
 import {
@@ -353,8 +350,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
     }, [menuSettings.localAiStatus.isRunning, logLocalAiEvent]);
 
+    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, currentGenreRuleVector });
+    gameLogicDependencies.current = { hnm, appState, io, menuSettings, currentGenreRuleVector };
 
     const gameStep = useCallback(async () => {
+        const { hnm, appState, io, menuSettings, currentGenreRuleVector } = gameLogicDependencies.current;
         if (!hnm.hnmSystem.current || !appState.inputProcessor) return;
 
         const hnmStepPackage = tf.tidy(() => {
@@ -417,7 +417,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         hnm.lastL0Anomaly.current = (await l0AnomalyTensor.data())[0];
         disposeHnsResultsTensors(hnmStepPackage);
 
-    }, [appState, hnm, io, menuSettings, currentGenreRuleVector]);
+    }, []);
     
     // Main Initialization
     useEffect(() => {

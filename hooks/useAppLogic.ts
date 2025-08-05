@@ -65,7 +65,12 @@ export const useRenderLoop = (
     const complexityLevel = useRef(0.5);
     const syncFactor = useRef(0.0);
 
+    const renderDependencies = useRef({ getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo });
+    renderDependencies.current = { getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo };
+
     const gameLoop = useCallback(async (timestamp: number) => {
+        const { getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo } = renderDependencies.current;
+
         if (!frameInfo.current.isLooping || !renderer.current || !scene.current || !camera.current || !material.current) return;
         
         requestAnimationFrame(gameLoop);
@@ -116,7 +121,7 @@ export const useRenderLoop = (
             setDebugInfo(`FPS: ${frameInfo.current.currentFPS.toFixed(1)} | Sync: ${syncFactor.current.toFixed(2)} | Complexity: ${complexityLevel.current.toFixed(3)} | Arts: ${activeArtifactInfo.ids.length}`);
         }
 
-    }, [getMenuSettings, getInputState, getHnmOutputs, updateAudioWorklet, setDebugInfo]);
+    }, []);
 
     const start = () => {
         if (!frameInfo.current.isLooping) {
@@ -181,7 +186,7 @@ export const useRenderLoop = (
             material.current?.dispose();
             geometry.dispose();
         };
-    }, [canvasRef]);
+    }, [canvasRef, gameLoop]);
 
     return { start, stop };
 };
