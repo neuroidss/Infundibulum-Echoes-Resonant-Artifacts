@@ -1,5 +1,4 @@
 
-
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
 import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
 import {
@@ -7,9 +6,11 @@ import {
     HNM_HIERARCHY_LEVEL_CONFIGS, HNM_POLICY_HEAD_INPUT_LEVEL_NAME,
     ARTIFACT_CREATION_INTERVAL_MS, ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN,
     ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX, ARTIFACT_SIMILARITY_THRESHOLD,
-    MAX_ACTIVE_ARTIFACTS_LOGIC, REASONABLE_SHADER_ARTIFACT_CAP,
+    MAX_ACTIVE_ARTIFACTS_LOGIC, 
     HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM,
-    TARGET_FPS
+    TARGET_FPS,
+    ARTIFACT_CREATION_SYNC_THRESHOLD,
+    ARTIFACT_CREATION_SYNC_DURATION_MS
 } from '../constants';
 import { useSettings } from './useSettings';
 import { useAppUI } from './useAppUI';
@@ -79,9 +80,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     } = useAppUI();
     
     const {
-        menuSettings, setMenuSettings, genreEditState, handleMenuSettingChange,
-        resetMenuSettingsToDefault, handleGenreEditChange, loadSelectedGenreToSliders,
-        saveSlidersToSelectedGenre, currentGenreRuleVector, isAiDisabled,
+        menuSettings, setMenuSettings, handleMenuSettingChange,
+        resetMenuSettingsToDefault, isAiDisabled,
     } = useSettings({ showWarning, showError });
     
     const io = useIO({
@@ -101,7 +101,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         showLoading,
         setMenuSettings,
         handleMenuSettingChange,
-        getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer }),
+        getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer, outputRhythm: io.inputState.current.outputRhythm }),
         getHnmAnomaly: () => hnm.lastL0Anomaly.current,
         captureMultimodalContext: io.captureMultimodalContext,
     });
@@ -124,7 +124,13 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         lastArtifactCreationTime: 0,
         interactionOccurred: false,
         isSavingState: false,
+        syncState: {
+            isSyncing: false,
+            syncStartTime: 0,
+        }
     }).current;
+    const gameLoopRef = useRef({ isRunning: false });
+    const autoSaveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const saveStateToLocalStorage = useCallback(async () => {
         if (!appState.interactionOccurred || !hnm.currentResonantState.current || hnm.currentResonantState.current.isDisposed || !hnm.artifactManager.current || appState.isSavingState) return;
@@ -157,7 +163,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     function handleSpeechCommand(command: string) {
         switch (command) {
             case 'CREATE':
-                createArtifact();
+                createArtifactOnSync(true); // Force create
                 break;
             case 'FORGET_OLDEST':
                 if (hnm.artifactManager.current?.forgetOldestArtifact()) {
@@ -171,12 +177,12 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
     }
     
-    const createArtifact = useCallback(async () => {
+    const createArtifactOnSync = useCallback(async (force = false) => {
         const now = Date.now();
-        if (now - appState.lastArtifactCreationTime < ARTIFACT_CREATION_INTERVAL_MS) return;
+        if (!force && (now - appState.lastArtifactCreationTime < ARTIFACT_CREATION_INTERVAL_MS)) return;
 
         const complexity = hnm.lastL0Anomaly.current;
-        if (complexity < ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN || complexity > ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX) return;
+        if (!force && (complexity < ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN || complexity > ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX)) return;
 
         if (hnm.artifactManager.current) {
             const [created, artifact] = await hnm.artifactManager.current.createArtifact(hnm.currentResonantState.current, hnm.embeddingsReady);
@@ -184,9 +190,10 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 appState.lastArtifactCreationTime = now;
                 io.triggerVisualFeedback(0.6, 0.2);
                 saveStateToLocalStorage();
+                showWarning("Vibe Synchronized. Artifact Created.", 2000);
             }
         }
-    }, [appState, hnm, io.triggerVisualFeedback, saveStateToLocalStorage]);
+    }, [appState, hnm, io.triggerVisualFeedback, saveStateToLocalStorage, showWarning]);
 
 
     const handleTrainOnArtifacts = useCallback(async () => {
@@ -196,6 +203,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
         
         renderLoop.stop();
+        gameLoopRef.current.isRunning = false;
         await new Promise(resolve => setTimeout(resolve, 100));
     
         try {
@@ -206,6 +214,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         } finally {
             showLoading(false);
             renderLoop.start();
+            gameLoopRef.current.isRunning = true;
+            runGameLoop();
         }
     }, [menuSettings.enableHnmTraining, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, hnm, renderLoop, showWarning, showError, showLoading]);
 
@@ -396,17 +406,53 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
     }, [menuSettings.localAiStatus.isRunning, logLocalAiEvent]);
 
-    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, currentGenreRuleVector, hnmStateVector });
-    gameLogicDependencies.current = { hnm, appState, io, menuSettings, currentGenreRuleVector, hnmStateVector };
+    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, hnmStateVector });
+    gameLogicDependencies.current = { hnm, appState, io, menuSettings, hnmStateVector };
 
     const gameStep = useCallback(async () => {
-        const { hnm, appState, io, menuSettings, currentGenreRuleVector } = gameLogicDependencies.current;
+        const { hnm, appState, io, menuSettings } = gameLogicDependencies.current;
         if (!hnm.hnmSystem.current || !appState.inputProcessor) return;
+
+        // --- Vibe Sync Logic ---
+        const motionTempo = io.inputState.current.accelerometer.rhythmTempo;
+        const outputTempo = io.inputState.current.outputRhythm.bpm;
+        const tempoDiff = Math.abs(motionTempo - outputTempo);
+        const syncFactor = Math.max(0, 1 - tempoDiff / 50); // 0 diff = 1.0 sync, 50bpm diff = 0.0 sync
+        io.inputState.current.syncFactor = lerp(io.inputState.current.syncFactor, syncFactor, 0.1);
+
+        // --- Artifact Creation on Sustained Sync ---
+        const now = Date.now();
+        if (io.inputState.current.syncFactor > ARTIFACT_CREATION_SYNC_THRESHOLD) {
+            if (!appState.syncState.isSyncing) {
+                appState.syncState.isSyncing = true;
+                appState.syncState.syncStartTime = now;
+            } else if (now - appState.syncState.syncStartTime > ARTIFACT_CREATION_SYNC_DURATION_MS) {
+                createArtifactOnSync();
+                appState.syncState.isSyncing = false; // Reset after creation
+            }
+        } else {
+            appState.syncState.isSyncing = false;
+        }
+
 
         const hnmStepPackage = tf.tidy(() => {
             const sensoryInputTensor = appState.inputProcessor!.process(io.inputState.current, io.inputState.current.currentTime);
             const artifactSignal = hnm.projectArtifactsToExternalSignal(hnm.activeArtifactInfo.current, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM);
-            const genreRuleSignal = tf.tensor1d(currentGenreRuleVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
+            
+            // The "vibe target" is now dynamic, based on what the user is vibing with.
+            // If sync is high, the target is the current state. If low, it's a state derived from user's bio-feedback.
+            const vibeTargetVector = new Array(STATE_VECTOR_SIZE).fill(0.5);
+            if (io.inputState.current.syncFactor < 0.4) { // User is out of sync, adapt to them
+                const motionPeak = io.inputState.current.accelerometer.rhythmPeak; // Complexity
+                const motionTempoNorm = (motionTempo - 60) / 160; // 60-220bpm range
+                vibeTargetVector[0] = motionTempoNorm; // masterBPM
+                vibeTargetVector[1] = motionPeak; // kick density
+                vibeTargetVector[5] = motionPeak; // bass density
+                vibeTargetVector[8] = motionPeak; // complexity
+            } else { // User is in sync, reinforce current state
+                hnmStateVector.forEach((val, i) => vibeTargetVector[i] = val);
+            }
+            const vibeTargetSignal = tf.tensor1d(vibeTargetVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
             
             const micDiffMag = Math.abs(io.inputState.current.mic.rhythmPeak - io.inputState.current.accelerometer.rhythmPeak);
             const externalL0SignalRaw = hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength);
@@ -414,7 +460,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
             const externalSignals = {
                 [HNM_HIERARCHY_LEVEL_CONFIGS[0].external_input_config!.source_signal_name]: externalL0Signal,
-                [HNM_HIERARCHY_LEVEL_CONFIGS[1].external_input_config!.source_signal_name]: genreRuleSignal,
+                [HNM_HIERARCHY_LEVEL_CONFIGS[1].external_input_config!.source_signal_name]: vibeTargetSignal,
             };
 
             return hnm.hnmSystem.current!.step(
@@ -462,7 +508,21 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         hnm.lastL0Anomaly.current = (await l0AnomalyTensor.data())[0];
         disposeHnsResultsTensors(hnmStepPackage);
 
-    }, []);
+    }, [createArtifactOnSync]);
+
+    const runGameLoop = useCallback(async () => {
+        if (!gameLoopRef.current.isRunning) return;
+    
+        const loopStart = performance.now();
+    
+        await gameStep();
+    
+        const loopEnd = performance.now();
+        const duration = loopEnd - loopStart;
+        const delay = Math.max(0, (1000 / TARGET_FPS) - duration);
+        
+        setTimeout(runGameLoop, delay);
+    }, [gameStep]);
     
     // Main Initialization
     useEffect(() => {
@@ -503,9 +563,11 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
             hideWarning();
             renderLoop.start();
-            setInterval(gameStep, 1000 / TARGET_FPS);
-            setInterval(saveStateToLocalStorage, 15000);
-            setInterval(createArtifact, ARTIFACT_CREATION_INTERVAL_MS);
+            gameLoopRef.current.isRunning = true;
+            runGameLoop();
+
+            if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
+            autoSaveInterval.current = setInterval(saveStateToLocalStorage, 15000);
         };
         
         init().catch(err => {
@@ -518,7 +580,9 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
 
         return () => { 
             isMounted = false; 
-            renderLoop.stop(); 
+            renderLoop.stop();
+            gameLoopRef.current.isRunning = false;
+            if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
             hnm.reset(); 
             clearInterval(statusInterval);
         };
@@ -535,10 +599,6 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         handleMenuSettingChange,
         resetMenuSettingsToDefault,
         resetHnmRag,
-        genreEditState,
-        handleGenreEditChange,
-        loadSelectedGenreToSliders,
-        saveSlidersToSelectedGenre,
         handleAiGenerate: ai.handleAiGenerate,
         isAiConfigModalVisible,
         toggleAiConfigModal,

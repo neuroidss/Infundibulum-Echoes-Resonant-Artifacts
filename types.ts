@@ -1,7 +1,4 @@
 
-
-
-
 export interface MenuSettings {
     playerInfluence: number;
     hnmModulationDepth: number;
@@ -116,17 +113,43 @@ export interface MenuSettings {
     hnmWeightDecay: number;
     showLocalAiPanel: boolean;
     localAiStatus: LocalAiStatus;
+
+    // --- DEPRECATED - For older GUI compatibility ---
+    genreRuleInfluence: number;
+    psySpectrumPosition: number;
+    darknessModifier: number;
+    kickClick: number;
+    bassFilterLfoRate: number;
+    bassFilterLfoDepth: number;
+    leadOscType: number;
+    leadOctave: number;
+    leadPW: number;
+    leadCutoff: number;
+    leadReso: number;
+    leadEnvAmt: number;
+    leadFilterDecay: number;
+    leadAmpDecay: number;
+    leadPitchLfoRate: number;
+    leadPitchLfoDepth: number;
+    leadFilterLfoRate: number;
+    leadFilterLfoDepth: number;
+    leadLevel: number;
+    hatClosedDecay: number;
+    hatOpenDecay: number;
+    hatHpfCutoff: number;
+    hatTone: number;
+    hatLevel: number;
+    noiseFxFiltType: number;
+    noiseFxCutoff: number;
+    noiseFxReso: number;
+    noiseFxLfoRate: number;
+    noiseFxLfoDepth: number;
+    noiseFxLevel: number;
 }
 
 export interface LocalAiStatus {
   isRunning: boolean;
   logs: string[];
-}
-
-export interface GenreEditState {
-    genreEdit_Selected: string;
-    _genreEdit_tempState: number[];
-    [key: `genreEdit_Param${number}`]: number;
 }
 
 export interface InputState {
@@ -162,6 +185,10 @@ export interface InputState {
         history: number[];
         rhythmPeak: number;
         rhythmTempo: number;
+    };
+    outputRhythm: {
+        bpm: number;
+        density: number;
     };
     syncFactor: number;
     currentTime: number;

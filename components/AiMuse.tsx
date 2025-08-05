@@ -49,55 +49,72 @@ const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, i
   }
 
   const fabIcon = (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
-      <path d="M12.75 3.375a.75.75 0 0 0-1.5 0V4.5h-1.125a.75.75 0 0 0 0 1.5h1.125V7.125a.75.75 0 0 0 1.5 0V6h1.125a.75.75 0 0 0 0-1.5H12.75V3.375z" />
-      <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25zM11.663 10.237c.394.066.663.41.663.813v.002a.85.85 0 0 1-.663.813q-.16.026-.328.026c-.864 0-1.6-.563-1.6-1.462 0-.9 1.125-1.462 1.928-1.462.434 0 .813.148 1.125. ৪৫l-.832.744a.43.43 0 0 0-.293-.45zM14.25 10.237c.394.066.663.41.663.813v.002a.85.85 0 0 1-.663.813q-.16.026-.328.026c-.864 0-1.6-.563-1.6-1.462 0-.9 1.125-1.462 1.928-1.462.434 0 .813.148 1.125.45l-.832.744a.43.43 0 0 0-.293-.45z" clipRule="evenodd" />
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 text-white">
+      <path fillRule="evenodd" d="M9.315 7.584C12.195 3.883 16.695 1.5 21.75 1.5a.75.75 0 01.75.75c0 5.056-2.383 9.555-6.084 12.436A6.75 6.75 0 019.75 22.5a.75.75 0 01-.75-.75v-4.131A15.838 15.838 0 016.382 15H2.25a.75.75 0 01-.75-.75 6.75 6.75 0 017.815-6.666zM15 6.75a2.25 2.25 0 100 4.5 2.25 2.25 0 000-4.5z" clipRule="evenodd" />
+      <path d="M5.26 17.242a.75.75 0 10-1.06-1.06 7.5 7.5 0 00-1.964 5.344.75.75 0 00.75.75h.01a.75.75 0 00.74-.646 6 6 0 011.53-3.335z" />
     </svg>
   );
 
   return (
-    <>
-      <div className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-2xl mb-4 z-20 transition-all duration-300 ease-in-out ${isOpen && !trulyDisabled ? 'opacity-100' : 'opacity-0 pointer-events-none -bottom-20'}`}>
-        <form onSubmit={handleSubmit} className="relative w-full">
-          <input
-            ref={inputRef}
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={getPlaceholderText()}
-            className="w-full pl-4 pr-28 py-4 bg-gray-900/70 text-white placeholder-gray-400 border border-blue-500/30 rounded-full focus:ring-2 focus:ring-blue-400 focus:outline-none backdrop-blur-sm shadow-lg"
-            disabled={isGenerating || trulyDisabled}
-            aria-label="AI Muse Prompt"
-          />
-          <button
-            type="submit"
-            disabled={isGenerating || !prompt.trim() || trulyDisabled}
-            className="absolute right-2 top-1/2 -translate-y-1/2 h-12 px-6 bg-blue-600 text-white rounded-full font-semibold flex items-center justify-center disabled:bg-gray-500 disabled:cursor-not-allowed hover:bg-blue-500 transition-colors"
-            aria-label="Generate with AI Muse"
+    <div className="fixed bottom-16 right-4 z-30">
+      <div className="relative flex flex-col items-end gap-2">
+        {/* Input form, shown when open */}
+        <div 
+          className={`transition-all duration-300 ease-in-out ${isOpen ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'} overflow-hidden`}
+        >
+          <form 
+            onSubmit={handleSubmit} 
+            className="flex items-center gap-2 p-2 bg-gray-900/80 backdrop-blur-md border border-purple-700/50 rounded-lg shadow-2xl"
           >
-            {isGenerating ? '...' : 'Generate'}
-          </button>
-        </form>
-      </div>
-      
-      <div className="fixed bottom-4 right-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 md:right-4 z-30">
+            <input
+              ref={inputRef}
+              type="text"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={getPlaceholderText()}
+              disabled={trulyDisabled || isGenerating}
+              className="w-64 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+              aria-label="AI Muse Prompt"
+            />
+            <button 
+              type="submit" 
+              disabled={isGenerating || trulyDisabled || !prompt.trim()}
+              className="p-2 bg-purple-600 rounded-md hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed"
+              aria-label="Generate with AI Muse"
+            >
+              {isGenerating ? 
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> :
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                    <path fillRule="evenodd" d="M9.53 2.302a.75.75 0 01.94 0l1.25 1.25a.75.75 0 01.22.53v.016l.03 1.26a.75.75 0 01-1.498.032l-.03-1.26a.75.75 0 01.22-.53l-1.25-1.25a.75.75 0 01-.47-.218z" clipRule="evenodd" />
+                    <path d="M4.94 4.94a.75.75 0 011.06 0l.292.293a.75.75 0 010 1.061l-2.02 2.02a.75.75 0 01-1.06 0l-.293-.292a.75.75 0 010-1.061l2.02-2.02z" />
+                    <path d="M12.97 4.97a.75.75 0 011.06 0l2.02 2.02a.75.75 0 010 1.06l-.292.293a.75.75 0 01-1.061 0l-2.02-2.02a.75.75 0 010-1.06l.292-.293z" />
+                    <path fillRule="evenodd" d="M10 8.25a.75.75 0 01.75.75v1.834l.28-.28A.75.75 0 0112.09 11.6l-2.5 2.5a.75.75 0 01-1.06 0l-2.5-2.5a.75.75 0 111.06-1.06l.28.28V9a.75.75 0 01.75-.75z" clipRule="evenodd" />
+                    <path d="M3.5 13.5a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75zM14.5 13.5a.75.75 0 01.75-.75h1.5a.75.75 0 010 1.5h-1.5a.75.75 0 01-.75-.75z" />
+                    <path fillRule="evenodd" d="M6.25 15.25a.75.75 0 01.75-.75h6a.75.75 0 010 1.5h-6a.75.75 0 01-.75-.75zM8.5 17.5a.75.75 0 01.75-.75h2a.75.75 0 010 1.5h-2a.75.75 0 01-.75-.75z" clipRule="evenodd" />
+                </svg>
+              }
+            </button>
+          </form>
+        </div>
+
+        {/* FAB button */}
         <button
           onClick={handleToggle}
           disabled={trulyDisabled}
-          className={`w-16 h-16 rounded-full flex items-center justify-center text-white transition-all duration-300 ease-in-out transform shadow-xl focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-black focus:ring-blue-400
-            ${trulyDisabled ? 'bg-gray-700 cursor-not-allowed opacity-60' : (isOpen ? 'bg-red-600 hover:bg-red-500 scale-90' : 'bg-blue-600 hover:bg-blue-500 scale-100')}
-          `}
-          aria-label={isDisabled ? "AI Not Configured" : (isCopilotActive ? "AI Co-pilot Active" : (isOpen ? 'Close AI Muse' : 'Open AI Muse'))}
-          title={getPlaceholderText()}
+          className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${
+            trulyDisabled ? 'bg-gray-600 cursor-not-allowed' : 
+            isOpen ? 'bg-purple-800 hover:bg-purple-700' : 
+            'bg-gradient-to-br from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
+          }`}
+          aria-label={isOpen ? 'Close AI Muse' : 'Open AI Muse'}
         >
-          {isOpen && !trulyDisabled ? (
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          ) : fabIcon}
+          {isOpen ?
+             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-8 h-8 text-white"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" /></svg> :
+             fabIcon
+          }
         </button>
       </div>
-    </>
+    </div>
   );
 };
 

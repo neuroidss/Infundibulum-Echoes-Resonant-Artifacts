@@ -1,13 +1,12 @@
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    MenuSettings, GenreEditState, ModelProvider, AIModel
+    MenuSettings, ModelProvider
 } from '../types';
 import {
-    DEFAULT_MENU_SETTINGS, GENRE_TARGET_STATES, VERSION,
-    GENRE_EDIT_SLIDER_COUNT, GENRE_EDIT_SLIDER_MAPPING, STATE_VECTOR_SIZE,
+    DEFAULT_MENU_SETTINGS, VERSION,
     LOCAL_STORAGE_MENU_KEY, AI_MODELS
 } from '../constants';
-import { lerp } from '../lib/utils';
 
 interface UseSettingsProps {
     showWarning: (message: string, duration?: number) => void;
@@ -37,12 +36,6 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
         return DEFAULT_MENU_SETTINGS;
     });
 
-    const [genreEditState, setGenreEditState] = useState<GenreEditState>({
-        genreEdit_Selected: "PSY_CHILL",
-        _genreEdit_tempState: new Array(STATE_VECTOR_SIZE).fill(0.5),
-        ...Object.fromEntries(Array.from({ length: GENRE_EDIT_SLIDER_COUNT }, (_, i) => [`genreEdit_Param${i}`, 0.5])) as any
-    });
-
     const isAiDisabled = useMemo(() => {
         const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
         if (!selectedModel) return true;
@@ -60,53 +53,6 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
                 return true;
         }
     }, [menuSettings.selectedModelId, menuSettings.googleApiKey, menuSettings.openAiApiKey, menuSettings.openAiBaseUrl, menuSettings.ollamaHost]);
-
-    const currentGenreRuleVector = useMemo(() => {
-        const { energyLevel, mood } = menuSettings;
-
-        // Determine base genres based on energy level
-        let baseLightGenre1Name: string, baseLightGenre2Name: string, interp: number;
-        if (energyLevel <= 0.333) {
-            baseLightGenre1Name = "PSY_CHILL";
-            baseLightGenre2Name = "PSY_DUB";
-            interp = energyLevel / 0.333;
-        } else if (energyLevel <= 0.666) {
-            baseLightGenre1Name = "PSY_DUB";
-            baseLightGenre2Name = "PSY_PROGRESSIVE";
-            interp = (energyLevel - 0.333) / 0.333;
-        } else {
-            baseLightGenre1Name = "PSY_PROGRESSIVE";
-            baseLightGenre2Name = "PSY_FULLON";
-            interp = (energyLevel - 0.666) / 0.334;
-        }
-        
-        const getDarkGenreName = (lightGenreName: string): string => {
-            switch (lightGenreName) {
-                case "PSY_CHILL": return "DARK_PSY_CHILL";
-                case "PSY_DUB": return "DARK_PSY_DUB";
-                case "PSY_PROGRESSIVE": return "DARK_PSY_PROG";
-                case "PSY_FULLON": return "DARK_PSY";
-                default: return "DARK_PSY"; // Fallback
-            }
-        };
-
-        const baseDarkGenre1Name = getDarkGenreName(baseLightGenre1Name);
-        const baseDarkGenre2Name = getDarkGenreName(baseLightGenre2Name);
-
-        const baseLightGenre1 = GENRE_TARGET_STATES[baseLightGenre1Name] || GENRE_TARGET_STATES["PSY_CHILL"];
-        const baseLightGenre2 = GENRE_TARGET_STATES[baseLightGenre2Name] || GENRE_TARGET_STATES["PSY_FULLON"];
-        const baseDarkGenre1 = GENRE_TARGET_STATES[baseDarkGenre1Name] || GENRE_TARGET_STATES["DARK_PSY_CHILL"];
-        const baseDarkGenre2 = GENRE_TARGET_STATES[baseDarkGenre2Name] || GENRE_TARGET_STATES["DARK_PSY"];
-
-        const lightContinuumVector = new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(baseLightGenre1[i], baseLightGenre2[i], interp));
-        const darkContinuumVector = new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(baseDarkGenre1[i], baseDarkGenre2[i], interp));
-        
-        // mood is 0: Light, 1: Twilight, 2: Dark -> maps to a 0-1 modifier
-        const moodModifier = mood / 2.0;
-        
-        return new Array(STATE_VECTOR_SIZE).fill(0).map((_, i) => lerp(lightContinuumVector[i], darkContinuumVector[i], moodModifier));
-    }, [menuSettings.energyLevel, menuSettings.mood]);
-
 
     const saveMenuSettings = useCallback(() => {
         try {
@@ -129,51 +75,11 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
         showWarning("Menu settings reset to default.", 2000);
     }, [showWarning]);
 
-    const handleGenreEditChange = useCallback((key: string, value: any) => {
-        setGenreEditState(prev => ({...prev, [key]: value}));
-    }, []);
-
-    const loadSelectedGenreToSliders = useCallback(() => {
-        const selectedGenreName = genreEditState.genreEdit_Selected;
-        if (GENRE_TARGET_STATES[selectedGenreName]) {
-            const genreState = GENRE_TARGET_STATES[selectedGenreName];
-            const newEditState: Partial<GenreEditState> = { _genreEdit_tempState: [...genreState] };
-            for (let i = 0; i < GENRE_EDIT_SLIDER_COUNT; i++) {
-                const stateVectorIndex = GENRE_EDIT_SLIDER_MAPPING[i];
-                newEditState[`genreEdit_Param${i}`] = genreState[stateVectorIndex];
-            }
-            setGenreEditState(prev => ({...prev, ...newEditState}));
-            showWarning(`Loaded '${selectedGenreName}' to genre editor.`, 2000);
-        } else { showError(`Genre '${selectedGenreName}' not found for editing.`); }
-    }, [genreEditState.genreEdit_Selected, showError, showWarning]);
-
-    const saveSlidersToSelectedGenre = useCallback(() => {
-        const selectedGenreName = genreEditState.genreEdit_Selected;
-        if (GENRE_TARGET_STATES[selectedGenreName]) {
-            const targetGenreArray = GENRE_TARGET_STATES[selectedGenreName];
-            for (let i = 0; i < GENRE_EDIT_SLIDER_COUNT; i++) {
-                const stateVectorIndex = GENRE_EDIT_SLIDER_MAPPING[i];
-                targetGenreArray[stateVectorIndex] = genreEditState[`genreEdit_Param${i}` as keyof GenreEditState] as number;
-            }
-            for(let i = 0; i < STATE_VECTOR_SIZE; i++) {
-                if (!GENRE_EDIT_SLIDER_MAPPING.includes(i) && genreEditState._genreEdit_tempState[i] !== undefined) {
-                    targetGenreArray[i] = genreEditState._genreEdit_tempState[i];
-                }
-            }
-            showWarning(`Saved sliders to '${selectedGenreName}' (session only).`, 3000);
-        } else { showError(`Genre '${selectedGenreName}' not found for saving.`); }
-    }, [genreEditState, showError, showWarning]);
-
     return {
         menuSettings,
         setMenuSettings,
-        genreEditState,
         handleMenuSettingChange,
         resetMenuSettingsToDefault,
-        handleGenreEditChange,
-        loadSelectedGenreToSliders,
-        saveSlidersToSelectedGenre,
-        currentGenreRuleVector,
         isAiDisabled
     };
 };

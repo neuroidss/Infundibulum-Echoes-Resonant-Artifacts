@@ -1,7 +1,3 @@
-
-
-
-
 import { useRef, useCallback, useEffect } from 'react';
 import type { MenuSettings, AiContext, AiContextItem } from '../types';
 import { ModelProvider } from '../types';

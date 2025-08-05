@@ -1,4 +1,3 @@
-
 import type { Artifact, ActiveArtifactInfo } from '../types';
 
 declare var tf: any;

@@ -1,5 +1,3 @@
-
-
 import { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import type { ActiveArtifactInfo } from '../types';

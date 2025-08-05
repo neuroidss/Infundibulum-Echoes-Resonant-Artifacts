@@ -1,3 +1,4 @@
+
 import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider } from './types';
 
 export const VERSION = "1.0.0-PsyTek";
@@ -10,7 +11,9 @@ export const MAX_ARTIFACTS = 16;
 export const MAX_ACTIVE_ARTIFACTS_LOGIC = 4;
 export const REASONABLE_SHADER_ARTIFACT_CAP = 4;
 export const ARTIFACT_SIMILARITY_THRESHOLD = 0.46;
-export const ARTIFACT_CREATION_INTERVAL_MS = 9000;
+export const ARTIFACT_CREATION_SYNC_THRESHOLD = 0.65; 
+export const ARTIFACT_CREATION_SYNC_DURATION_MS = 2500;
+export const ARTIFACT_CREATION_INTERVAL_MS = 9000; // Cooldown between creations
 export const ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MIN = 0.28;
 export const ARTIFACT_CREATION_ACTIVITY_THRESHOLD_MAX = 0.85;
 export const EMBEDDING_MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
@@ -42,37 +45,26 @@ export const HNM_HIERARCHY_LEVEL_CONFIGS: HnmLevelConfig[] = [
 
 export const HNM_POLICY_HEAD_INPUT_LEVEL_NAME = "L1_ContextualResonance";
 
-export const GENRE_TARGET_STATES: { [key: string]: number[] } = {
-    "PSY_CHILL": [0.5, 0.2, 0.3, 0.7, 0.5, 0.7, 0.3, 0.2, 0.3, 0.2, 0.7, 0.6, 0.1, 0.5, 0.2, 0.6, 0.4, 0.5, 0.3, 0.5, 0.5, 0.2, 0.6, 0.3, 0.2, 0.3, 0.4, 0.2, 0.4, 0.4, 0.5, 0.6, 0.4, 0.5, 0.7, 0.6, 0.2, 0.5, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "PSY_DUB": [0.6, 0.3, 0.2, 0.4, 0.6, 0.6, 0.4, 0.2, 0.4, 0.35, 0.6, 0.5, 0.2, 0.7, 0.3, 0.7, 0.3, 0.4, 0.2, 0.6, 0.2, 0.1, 0.7, 0.4, 0.3, 0.4, 0.3, 0.3, 0.5, 0.5, 0.3, 0.7, 0.6, 0.6, 0.8, 0.7, 0.3, 0.6, 0.3, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "PSY_PROGRESSIVE": [0.5, 0.6, 0.4, 0.6, 0.5, 0.5, 0.6, 0.4, 0.6, 0.55, 0.4, 0.5, 0.3, 0.4, 0.6, 0.65, 0.6, 0.5, 0.4, 0.5, 0.5, 0.4, 0.5, 0.5, 0.4, 0.5, 0.5, 0.4, 0.4, 0.4, 0.4, 0.4, 0.3, 0.4, 0.5, 0.4, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "PSY_FULLON": [0.7, 0.7, 0.5, 0.3, 0.6, 0.4, 0.7, 0.6, 0.7, 0.75, 0.3, 0.4, 0.4, 0.3, 0.7, 0.3, 0.8, 0.6, 0.6, 0.4, 0.4, 0.6, 0.4, 0.6, 0.5, 0.6, 0.7, 0.3, 0.3, 0.3, 0.3, 0.3, 0.2, 0.3, 0.4, 0.3, 0.5, 0.4, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "DARK_PSY_CHILL": [0.4, 0.3, 0.6, 0.2, 0.6, 0.1, 0.5, 0.4, 0.5, 0.4, 0.5, 0.4, 0.5, 0.6, 0.3, 0.6, 0.5, 0.6, 0.5, 0.4, 0.4, 0.3, 0.5, 0.4, 0.4, 0.4, 0.4, 0.3, 0.4, 0.4, 0.4, 0.5, 0.3, 0.5, 0.6, 0.5, 0.3, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "DARK_PSY_DUB": [0.5, 0.2, 0.7, 0.3, 0.7, 0.2, 0.5, 0.3, 0.6, 0.45, 0.5, 0.3, 0.6, 0.7, 0.2, 0.65, 0.4, 0.5, 0.4, 0.5, 0.3, 0.2, 0.6, 0.5, 0.4, 0.5, 0.4, 0.2, 0.4, 0.4, 0.3, 0.6, 0.5, 0.5, 0.7, 0.6, 0.4, 0.5, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "DARK_PSY_PROG": [0.4, 0.5, 0.6, 0.4, 0.6, 0.3, 0.7, 0.5, 0.8, 0.65, 0.3, 0.3, 0.6, 0.6, 0.4, 0.7, 0.6, 0.6, 0.7, 0.4, 0.3, 0.5, 0.4, 0.6, 0.5, 0.6, 0.5, 0.2, 0.3, 0.3, 0.3, 0.3, 0.2, 0.3, 0.4, 0.3, 0.5, 0.4, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-    "DARK_PSY": [0.8, 0.4, 0.7, 0.3, 0.7, 0.2, 0.8, 0.8, 0.9, 0.85, 0.4, 0.2, 0.7, 0.8, 0.2, 0.75, 0.7, 0.7, 0.8, 0.3, 0.3, 0.8, 0.2, 0.7, 0.6, 0.7, 0.6, 0.2, 0.2, 0.2, 0.2, 0.2, 0.1, 0.2, 0.3, 0.2, 0.6, 0.3, 0.7, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
-};
-
 export const DEFAULT_MENU_SETTINGS: MenuSettings = {
-    playerInfluence: 0.5,
+    playerInfluence: 0.6, // Renamed from playerInfluence, represents Bio-Feedback Influence
     hnmModulationDepth: 0.5,
     micFeedbackToL0Strength: 0.25,
     explorationInfluence: 0.1,
-    energyLevel: 0.5,
-    harmonicComplexity: 0.3,
-    mood: 1, // Twilight
-    masterBPM: 140,
-    kickPatternDensity: 0.9,
+    energyLevel: 0.8,
+    harmonicComplexity: 0.85,
+    mood: 2, // Dark
+    masterBPM: 145,
+    kickPatternDensity: 1.0,
     kickTune: 0.5,
     kickAttack: 0.8,
     kickPitchDecay: 0.05,
     kickAmpDecay: 0.4,
-    kickDistortion: 0.2,
-    kickLevel: 0.8,
-    bassPatternDensity: 0.7,
+    kickDistortion: 0.3,
+    kickLevel: 0.9,
+    bassPatternDensity: 0.9,
     bassOscType: 0,
     bassSubOscLevel: 0.5,
-    bassOctave: 1,
+    bassOctave: 0,
     bassPW: 0.5,
     bassGlide: 0.05,
     bassCutoff: 0.3,
@@ -81,28 +73,28 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     bassFilterKeyTrack: 0.4,
     bassFilterDecay: 0.15,
     bassAmpDecay: 0.1,
-    bassLevel: 0.7,
-    acidPatternDensity: 0.2,
-    acidOctave: 1,
-    acidCutoff: 0.6,
-    acidReso: 0.7,
-    acidEnvAmt: 0.8,
-    acidDecay: 0.3,
+    bassLevel: 0.8,
+    acidPatternDensity: 0.9,
+    acidOctave: 2,
+    acidCutoff: 0.75,
+    acidReso: 0.8,
+    acidEnvAmt: 0.9,
+    acidDecay: 0.15,
     acidAccentAmount: 0.5,
-    acidLevel: 0.6,
+    acidLevel: 0.65,
     atmosOscType: 1,
-    atmosEvolutionRate: 0.3,
-    atmosCutoff: 0.5,
-    atmosReso: 0.4,
-    atmosSpread: 0.6,
-    atmosLevel: 0.5,
+    atmosEvolutionRate: 0.7,
+    atmosCutoff: 0.65,
+    atmosReso: 0.5,
+    atmosSpread: 0.8,
+    atmosLevel: 0.4,
     rhythmPatternDensity: 0.8,
     rhythmClosedDecay: 0.05,
     rhythmOpenDecay: 0.25,
     rhythmHpfCutoff: 0.7,
     rhythmMetallicAmount: 0.6,
-    rhythmLevel: 0.5,
-    snarePatternDensity: 0.9,
+    rhythmLevel: 0.6,
+    snarePatternDensity: 1.0,
     snareFlamAmount: 0.2,
     snareNoiseLevel: 0.8,
     snareNoiseDecay: 0.08,
@@ -110,24 +102,24 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     snareBodyTune: 0.5,
     snareBodyDecay: 0.15,
     snareBodyLevel: 0.5,
-    snareLevel: 0.6,
-    riserTriggerRate: 1,
+    snareLevel: 0.7,
+    riserTriggerRate: 2,
     riserAttack: 2.0,
     riserDecay: 2.0,
     riserPitchSweep: 0.7,
     riserCutoff: 0.2,
     riserReso: 0.5,
     riserLevel: 0.4,
-    delayTimeMode: 2,
-    delayFeedback: 0.45,
+    delayTimeMode: 1,
+    delayFeedback: 0.6,
     delayFilterCutoff: 0.5,
     delayStereo: 0.3,
-    delayMix: 0.3,
-    reverbSize: 0.7,
+    delayMix: 0.4,
+    reverbSize: 0.85,
     reverbDamp: 0.5,
     reverbPreDelay: 0.02,
-    reverbShimmer: 0.3,
-    reverbMix: 0.25,
+    reverbShimmer: 0.6,
+    reverbMix: 0.5,
     enableSpeechCommands: true,
     enableTapReset: true,
     enablePsyCoreModulatorMode: false,
@@ -147,18 +139,64 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     hnmWeightDecay: 0.0001,
     showLocalAiPanel: false,
     localAiStatus: { isRunning: false, logs: ['Awaiting user action.'] },
-};
 
-export const GENRE_EDIT_SLIDER_COUNT = 16;
-export const GENRE_EDIT_SLIDER_MAPPING = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    // --- DEPRECATED - For older GUI compatibility ---
+    genreRuleInfluence: 0.5,
+    psySpectrumPosition: 0.5,
+    darknessModifier: 0.5,
+    kickClick: 0.5,
+    bassFilterLfoRate: 0.2,
+    bassFilterLfoDepth: 0,
+    leadOscType: 2,
+    leadOctave: 0.5,
+    leadPW: 0.5,
+    leadCutoff: 0.6,
+    leadReso: 0.5,
+    leadEnvAmt: 0.7,
+    leadFilterDecay: 0.3,
+    leadAmpDecay: 0.5,
+    leadPitchLfoRate: 0.2,
+    leadPitchLfoDepth: 0,
+    leadFilterLfoRate: 0.3,
+    leadFilterLfoDepth: 0,
+    leadLevel: 0.5,
+    hatClosedDecay: 0.05,
+    hatOpenDecay: 0.2,
+    hatHpfCutoff: 0.5,
+    hatTone: 0.5,
+    hatLevel: 0.5,
+    noiseFxFiltType: 1,
+    noiseFxCutoff: 0.5,
+    noiseFxReso: 0.5,
+    noiseFxLfoRate: 0.3,
+    noiseFxLfoDepth: 0,
+    noiseFxLevel: 0.3,
+};
 
 export const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(v, max));
 
 export const AI_MODELS: AIModel[] = [
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
-    { id: 'ollama-model/gemma2:latest', name: 'Gemma 2 (Ollama)', provider: ModelProvider.Ollama },
-    { id: 'openai-model/gpt-4o-mini', name: 'GPT-4o mini (OpenAI API)', provider: ModelProvider.OpenAI_API },
-    { id: 'Xenova/all-MiniLM-L6-v2', name: 'MiniLM (HuggingFace)', provider: ModelProvider.HuggingFace },
+{ id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash-Lite (GoogleAI)', provider: ModelProvider.GoogleAI, audioSupport: true },
+{ id: 'gemma-3n-e4b-it', name: 'Gemma 3n E4B (GoogleAI)', provider: ModelProvider.GoogleAI },
+{ id: 'gemma-3n-e2b-it', name: 'Gemma 3n E2B (GoogleAI)', provider: ModelProvider.GoogleAI },
+{ id: 'unsloth/gemma-3n-E2B-it-unsloth-bnb-4bit', name: 'gemma-3n-E2B-it (OpenAI_API)', provider: ModelProvider.OpenAI_API, audioSupport: true },
+{ id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', name: 'Qwen3 Coder 30B A3B (OpenAI_API)', provider: ModelProvider.OpenAI_API },
+{ id: 'hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:IQ2_M', name: 'Qwen3 Coder 30B A3B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'gemma3n:e4b', name: 'Gemma 3N E4B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'gemma3n:e2b', name: 'Gemma 3N E2B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'qwen3:14b', name: 'Qwen3 14B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'qwen3:8b', name: 'Qwen3 8B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'qwen3:4b', name: 'Qwen3 4B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'qwen3:1.7b', name: 'Qwen3 1.7B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'qwen3:0.6b', name: 'Qwen3 0.6B (Ollama)', provider: ModelProvider.Ollama },
+{ id: 'onnx-community/gemma-3-1b-it-ONNX', name: 'gemma-3-1b-it-ONNX (HuggingFace)', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/Qwen3-0.6B-ONNX', name: 'Qwen3-0.6B (HuggingFace)', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/gemma-3n-E2B-it-ONNX', name: 'Gemma 3N E2B (HuggingFace)', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/Qwen3-4B-ONNX', name: 'Qwen3-4B (HuggingFace)', provider: ModelProvider.HuggingFace },
+{ id: 'onnx-community/Qwen3-1.7B-ONNX', name: 'Qwen3-1.7B (HuggingFace)', provider: ModelProvider.HuggingFace }
 ];
 
 

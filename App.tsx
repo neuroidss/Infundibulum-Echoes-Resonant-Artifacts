@@ -1,3 +1,4 @@
+
 import React, { useRef, useState } from 'react';
 import { useInfundibulum } from './hooks/useInfundibulum';
 import UIOverlay from './components/UIOverlay';
@@ -164,10 +165,6 @@ const App: React.FC = () => {
     handleMenuSettingChange,
     resetMenuSettingsToDefault,
     resetHnmRag,
-    genreEditState,
-    handleGenreEditChange,
-    loadSelectedGenreToSliders,
-    saveSlidersToSelectedGenre,
     handleAiGenerate,
     isAiConfigModalVisible,
     toggleAiConfigModal,
@@ -198,10 +195,6 @@ const App: React.FC = () => {
             onMenuSettingChange={handleMenuSettingChange}
             resetMenuToDefaults={resetMenuSettingsToDefault}
             resetHnmRag={resetHnmRag}
-            genreEditState={genreEditState}
-            onGenreEditChange={handleGenreEditChange}
-            loadSelectedGenreToSliders={loadSelectedGenreToSliders}
-            saveSlidersToSelectedGenre={saveSlidersToSelectedGenre}
             isDisabled={isAiDisabled}
             toggleAiConfigModal={toggleAiConfigModal}
             handleTrainOnArtifacts={handleTrainOnArtifacts}

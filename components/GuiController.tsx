@@ -1,17 +1,14 @@
+
 import React, { useEffect, useRef } from 'react';
 import GUI from 'lil-gui';
-import { MenuSettings, GenreEditState } from '../types';
-import { GENRE_TARGET_STATES, GENRE_EDIT_SLIDER_COUNT, GENRE_EDIT_SLIDER_MAPPING, VERSION, AI_MODELS } from '../constants';
+import { MenuSettings } from '../types';
+import { VERSION, AI_MODELS } from '../constants';
 
 interface GuiControllerProps {
     menuSettings: MenuSettings;
     onMenuSettingChange: <K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => void;
     resetMenuToDefaults: () => void;
     resetHnmRag: () => void;
-    genreEditState: GenreEditState;
-    onGenreEditChange: (key: string, value: any) => void;
-    loadSelectedGenreToSliders: () => void;
-    saveSlidersToSelectedGenre: () => void;
     isDisabled: boolean;
     toggleAiConfigModal: () => void;
     handleTrainOnArtifacts: () => void;
@@ -22,18 +19,14 @@ const GuiController: React.FC<GuiControllerProps> = ({
     onMenuSettingChange,
     resetMenuToDefaults,
     resetHnmRag,
-    genreEditState,
-    onGenreEditChange,
-    loadSelectedGenreToSliders,
-    saveSlidersToSelectedGenre,
     isDisabled,
     toggleAiConfigModal,
     handleTrainOnArtifacts
 }) => {
     const guiRef = useRef<GUI | null>(null);
     const controlsRef = useRef<any>({});
-    const propsRef = useRef({ onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal, handleTrainOnArtifacts });
-    propsRef.current = { onMenuSettingChange, onGenreEditChange, resetMenuToDefaults, resetHnmRag, loadSelectedGenreToSliders, saveSlidersToSelectedGenre, toggleAiConfigModal, handleTrainOnArtifacts };
+    const propsRef = useRef({ onMenuSettingChange, resetMenuToDefaults, resetHnmRag, toggleAiConfigModal, handleTrainOnArtifacts });
+    propsRef.current = { onMenuSettingChange, resetMenuToDefaults, resetHnmRag, toggleAiConfigModal, handleTrainOnArtifacts };
 
 
     useEffect(() => {
@@ -71,7 +64,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         systemFolder.add(menuSettings, 'enableTapReset').name('Enable Tap Reset').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableTapReset', value));
         systemFolder.add({ reset: () => propsRef.current.resetMenuToDefaults() }, 'reset').name('Reset Menu Defaults');
         systemFolder.add({ reset: () => propsRef.current.resetHnmRag() }, 'reset').name('Reset HNM/RAG State');
-        systemFolder.add(menuSettings, 'playerInfluence', 0, 1, 0.01).name('Player Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('playerInfluence', v));
+        systemFolder.add(menuSettings, 'playerInfluence', 0, 1, 0.01).name('Bio-Feedback Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('playerInfluence', v));
         systemFolder.add(menuSettings, 'hnmModulationDepth', 0, 1, 0.01).name('HNM Synth Modulation').onChange((v:number) => propsRef.current.onMenuSettingChange('hnmModulationDepth', v));
         systemFolder.add(menuSettings, 'explorationInfluence', 0, 1, 0.01).name('HNM Anomaly Explor.').onChange((v:number) => propsRef.current.onMenuSettingChange('explorationInfluence', v));
         systemFolder.add(menuSettings, 'micFeedbackToL0Strength', 0, 1, 0.01).name('MicDiff Ext.Strength(L0)').onChange((v:number) => propsRef.current.onMenuSettingChange('micFeedbackToL0Strength', v));
@@ -169,17 +162,6 @@ const GuiController: React.FC<GuiControllerProps> = ({
         fxFolder.add(menuSettings, 'reverbPreDelay', 0, 0.2, 0.001).name('Reverb Pre-Delay').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbPreDelay', v));
         fxFolder.add(menuSettings, 'reverbShimmer', 0, 1, 0.01).name('Reverb Shimmer').onChange((v: number) => propsRef.current.onMenuSettingChange('reverbShimmer', v));
         fxFolder.add(menuSettings, 'reverbMix', 0, 1, 0.01).name('Reverb Mix').onChange((v:number) => propsRef.current.onMenuSettingChange('reverbMix', v));
-
-        const genreEditFolder = gui.addFolder('Genre Editor (HNM Targets)').close();
-        genreEditFolder.add(genreEditState, 'genreEdit_Selected', Object.keys(GENRE_TARGET_STATES)).name('Edit Genre').onChange(value => {
-            propsRef.current.onGenreEditChange('genreEdit_Selected', value);
-            propsRef.current.loadSelectedGenreToSliders();
-        });
-        genreEditFolder.add({ load: () => propsRef.current.loadSelectedGenreToSliders() }, 'load').name('Load to Sliders');
-        for (let i = 0; i < GENRE_EDIT_SLIDER_COUNT; i++) {
-            genreEditFolder.add(genreEditState, `genreEdit_Param${i}`, 0, 1, 0.01).name(`P${GENRE_EDIT_SLIDER_MAPPING[i]}`).onChange(value => propsRef.current.onGenreEditChange(`genreEdit_Param${i}`, value));
-        }
-        genreEditFolder.add({ save: () => propsRef.current.saveSlidersToSelectedGenre() }, 'save').name('Save Sliders to Genre');
         
         guiRef.current = gui;
 
@@ -223,13 +205,8 @@ const GuiController: React.FC<GuiControllerProps> = ({
                     controller.setValue(menuSettings[controller.property as keyof MenuSettings]);
                 }
             }
-            if (Object.prototype.hasOwnProperty.call(genreEditState, controller.property)) {
-                 if (controller.object[controller.property] !== genreEditState[controller.property as keyof GenreEditState]) {
-                    controller.setValue(genreEditState[controller.property as keyof GenreEditState]);
-                }
-            }
         });
-    }, [menuSettings, genreEditState]);
+    }, [menuSettings]);
 
     return null;
 };
