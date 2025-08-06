@@ -1,4 +1,5 @@
 
+
 import React, { useRef, useState } from 'react';
 import { useInfundibulum } from './hooks/useInfundibulum';
 import UIOverlay from './components/UIOverlay';
@@ -164,6 +165,7 @@ const App: React.FC = () => {
     isAiDisabled,
     menuSettings,
     handleMenuSettingChange,
+    smoothlyApplySettings,
     resetMenuSettingsToDefault,
     resetHnmRag,
     handleAiGenerate,
@@ -205,6 +207,7 @@ const App: React.FC = () => {
               <GuiController
                 menuSettings={menuSettings}
                 onMenuSettingChange={handleMenuSettingChange}
+                smoothlyApplySettings={smoothlyApplySettings}
                 resetMenuToDefaults={resetMenuSettingsToDefault}
                 resetHnmRag={resetHnmRag}
                 isDisabled={isAiDisabled}

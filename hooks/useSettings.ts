@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     MenuSettings, ModelProvider
@@ -65,8 +66,12 @@ export const useSettings = ({ showWarning, showError }: UseSettingsProps) => {
         saveMenuSettings();
     }, [menuSettings, saveMenuSettings]);
 
-    const handleMenuSettingChange = useCallback(<K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => {
-        setMenuSettings(prev => ({ ...prev, [key]: value }));
+    const handleMenuSettingChange = useCallback(<K extends keyof MenuSettings>(keyOrUpdate: K | Partial<MenuSettings>, value?: MenuSettings[K]) => {
+        if (typeof keyOrUpdate === 'object') {
+            setMenuSettings(prev => ({ ...prev, ...keyOrUpdate }));
+        } else {
+            setMenuSettings(prev => ({ ...prev, [keyOrUpdate]: value }));
+        }
     }, []);
 
     const resetMenuSettingsToDefault = useCallback(() => {

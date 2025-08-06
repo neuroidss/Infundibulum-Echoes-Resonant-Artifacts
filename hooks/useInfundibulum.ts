@@ -99,7 +99,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     
     const {
         menuSettings, setMenuSettings,
-        handleMenuSettingChange: originalHandleMenuSettingChange,
+        handleMenuSettingChange,
         resetMenuSettingsToDefault: baseResetMenuToDefault,
         isAiDisabled,
     } = useSettings({ showWarning, showError });
@@ -142,6 +142,53 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         onToggleUI: () => onToggleUIRef.current?.(),
         isLongPressUIToggleEnabled: menuSettings.enableLongPressToggleUI,
     });
+    
+    const smoothlyApplySettings = useCallback((targetParams: Partial<MenuSettings>, durationMs: number) => {
+        const startTime = performance.now();
+        
+        const startParamsSnapshot: { [k: string]: any } = {};
+        const numericKeysToAnimate: Array<keyof MenuSettings> = [];
+    
+        // Snapshot the starting values from the current state
+        for (const key of Object.keys(targetParams) as Array<keyof MenuSettings>) {
+            const endValue = targetParams[key];
+            const startValue = menuSettings[key];
+    
+            if (typeof endValue === 'number') {
+                startParamsSnapshot[key] = startValue;
+                numericKeysToAnimate.push(key);
+            } else if (startValue !== endValue) {
+                // Apply non-numeric changes immediately
+                if (endValue !== undefined && typeof endValue !== 'object') {
+                    handleMenuSettingChange(key, endValue);
+                }
+            }
+        }
+    
+        const transitionFrame = () => {
+            const elapsedTime = performance.now() - startTime;
+            const progress = Math.min(elapsedTime / durationMs, 1.0);
+            const easedProgress = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+    
+            for (const key of numericKeysToAnimate) {
+                let startValue = startParamsSnapshot[key] as number;
+                const endValue = targetParams[key] as number;
+    
+                if (!isFinite(startValue)) {
+                    startValue = endValue; 
+                }
+    
+                const currentValue = lerp(startValue, endValue, easedProgress);
+                handleMenuSettingChange(key, currentValue);
+            }
+    
+            if (progress < 1.0) {
+                requestAnimationFrame(transitionFrame);
+            }
+        };
+        
+        requestAnimationFrame(transitionFrame);
+    }, [menuSettings, handleMenuSettingChange]);
 
     const saveStateToLocalStorage = useCallback(async () => {
         if (!appState.interactionOccurred || !hnm.currentResonantState.current || hnm.currentResonantState.current.isDisposed || !hnm.artifactManager.current || appState.isSavingState) return;
@@ -385,7 +432,8 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }));
     }, [baseResetMenuToDefault, menuSettings, setMenuSettings]);
 
-    const handleMenuSettingChange = useCallback(<K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => {
+    const originalHandleMenuSettingChange = handleMenuSettingChange;
+    const handleTuningModeChange = useCallback(<K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => {
         if (key === 'enableInstrumentTuningMode') {
             setLastRecording(null);
             io.setMasterGain(0, 0.02); // Mute audio immediately
@@ -434,9 +482,9 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     useEffect(() => {
         onSpeechCommandRef.current = handleSpeechCommand;
         onToggleUIRef.current = () => {
-            handleMenuSettingChange('isUiVisible', !menuSettings.isUiVisible)
+            handleTuningModeChange('isUiVisible', !menuSettings.isUiVisible)
         };
-    }, [handleSpeechCommand, handleMenuSettingChange, menuSettings.isUiVisible]);
+    }, [handleSpeechCommand, handleTuningModeChange, menuSettings.isUiVisible]);
     
     const ai = useAiFeatures({
         menuSettings,
@@ -446,6 +494,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         showLoading,
         setMenuSettings,
         handleMenuSettingChange: originalHandleMenuSettingChange,
+        smoothlyApplySettings,
         getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer, outputRhythm: io.inputState.current.outputRhythm }),
         getHnmAnomaly: () => hnm.lastL0Anomaly.current,
         captureMultimodalContext: io.captureMultimodalContext,
@@ -904,7 +953,7 @@ ${baseInfo}
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key.toLowerCase() === 'h') {
                 const newVisibility = !menuSettings.isUiVisible;
-                handleMenuSettingChange('isUiVisible', newVisibility);
+                handleTuningModeChange('isUiVisible', newVisibility);
                 if (!newVisibility) {
                     showWarning("UI hidden. Long-press then tap to restore.", 3000);
                 }
@@ -915,7 +964,7 @@ ${baseInfo}
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [menuSettings.isUiVisible, handleMenuSettingChange, showWarning]);
+    }, [menuSettings.isUiVisible, handleTuningModeChange, showWarning]);
 
     return {
         debugInfo,
@@ -925,7 +974,8 @@ ${baseInfo}
         isInitialized,
         isAiDisabled,
         menuSettings,
-        handleMenuSettingChange,
+        smoothlyApplySettings,
+        handleMenuSettingChange: handleTuningModeChange,
         resetMenuSettingsToDefault,
         resetHnmRag,
         handleAiGenerate: ai.handleAiGenerate,

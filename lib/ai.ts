@@ -83,18 +83,22 @@ class GeminiService extends BaseAiService {
         return new GoogleGenAI({ apiKey });
     }
     
-    async callTool(userContent: Part[], systemInstruction: string, modelId: string, settings: Partial<MenuSettings>, tool: LLMTool): Promise<any> {
+    async callTool(userContent: Part[], systemInstruction: string, modelId: string, settings: Partial<MenuSettings>, tools: LLMTool[]): Promise<any> {
         const ai = this.getAIClient(settings);
-        const properties: { [key: string]: any } = {};
-        const required: string[] = [];
-        tool.parameters.forEach(p => {
-            properties[p.name] = { type: p.type as Type, description: p.description };
-            if (p.items) properties[p.name].items = { type: (p.items as any).type };
-            if (p.required) required.push(p.name);
+        
+        const functionDeclarations = tools.map(tool => {
+            const properties: { [key: string]: any } = {};
+            const required: string[] = [];
+            tool.parameters.forEach(p => {
+                properties[p.name] = { type: p.type as Type, description: p.description };
+                if (p.items) properties[p.name].items = { type: (p.items as any).type };
+                if (p.required) required.push(p.name);
+            });
+            const functionName = tool.name.replace(/[^a-zA-Z0-9_]/g, '_');
+            return { name: functionName, description: tool.description, parameters: { type: Type.OBJECT, properties, required } };
         });
 
-        const functionName = tool.name.replace(/[^a-zA-Z0-9_]/g, '_');
-        const googleTool = { functionDeclarations: [{ name: functionName, description: tool.description, parameters: { type: Type.OBJECT, properties, required } }] };
+        const googleTool = { functionDeclarations };
 
         const response = await ai.models.generateContent({
             model: modelId,
@@ -107,38 +111,40 @@ class GeminiService extends BaseAiService {
         });
         
         const call = response.candidates?.[0]?.content?.parts?.find(p => p.functionCall)?.functionCall;
-        if (call?.name === functionName) {
-            return call.args;
+        if (call) {
+            return { name: call.name, arguments: call.args };
         }
         
         const text = response.text?.trim();
         const parsed = text ? parseJsonOrNull(text) : null;
-        if (parsed) return parsed;
+        if (parsed) return { name: 'unknown', arguments: parsed }; // Fallback for models that don't use tool calls correctly
 
         throw new Error("Gemini did not return a valid tool call or JSON.");
     }
 }
 
 class OpenAIService extends BaseAiService {
-     async callTool(userContent: any[], systemInstruction: string, modelId: string, settings: Partial<MenuSettings>, tool: LLMTool): Promise<any> {
+     async callTool(userContent: any[], systemInstruction: string, modelId: string, settings: Partial<MenuSettings>, tools: LLMTool[]): Promise<any> {
         const apiKey = settings.openAiApiKey || process.env.OPENAI_API_KEY;
         const baseUrl = settings.openAiBaseUrl || process.env.OPENAI_BASE_URL;
         if (!apiKey || !baseUrl) throw new Error("OpenAI API Key or Base URL missing.");
 
-        const properties: { [key: string]: any } = {};
-        const required: string[] = [];
-        tool.parameters.forEach(p => {
-            properties[p.name] = { type: p.type, description: p.description };
-            if(p.type === 'array' && p.items) properties[p.name].items = { type: (p.items as any).type };
-            if (p.required) required.push(p.name);
+        const openAiTools = tools.map(tool => {
+            const properties: { [key: string]: any } = {};
+            const required: string[] = [];
+            tool.parameters.forEach(p => {
+                properties[p.name] = { type: p.type, description: p.description };
+                if(p.type === 'array' && p.items) properties[p.name].items = { type: (p.items as any).type };
+                if (p.required) required.push(p.name);
+            });
+            return { type: 'function', function: { name: tool.name, description: tool.description, parameters: { type: 'object', properties, required } } };
         });
-        const openAiTool = { type: 'function', function: { name: tool.name, description: tool.description, parameters: { type: 'object', properties, required } } };
 
         const body = {
             model: modelId,
             messages: [{ role: 'system', content: systemInstruction }, { role: 'user', content: userContent }],
-            tools: [openAiTool],
-            tool_choice: { type: "function", function: { name: tool.name } },
+            tools: openAiTools,
+            tool_choice: "auto",
             temperature: 0.2,
         };
 
@@ -156,27 +162,27 @@ class OpenAIService extends BaseAiService {
         const data = await response.json();
         const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
 
-        if (toolCall?.function?.name === tool.name) {
+        if (toolCall?.function) {
             try {
-                return JSON.parse(toolCall.function.arguments);
+                return { name: toolCall.function.name, arguments: JSON.parse(toolCall.function.arguments) };
             } catch (e) { throw new Error(`OpenAI tool call arguments were not valid JSON: ${toolCall.function.arguments}`); }
         }
         
         const textContent = data.choices?.[0]?.message?.content?.trim();
         const parsed = textContent ? parseJsonOrNull(textContent) : null;
-        if (parsed) return parsed;
+        if (parsed) return { name: 'unknown', arguments: parsed };
         
         throw new Error("OpenAI-compatible API did not return a valid tool call or JSON content.");
     }
 }
 
 class OllamaService extends BaseAiService {
-    async callTool(userContent: any, systemInstruction: string, modelId: string, settings: Partial<MenuSettings>, tool: LLMTool): Promise<any> {
+    async callTool(userContent: any, systemInstruction: string, modelId: string, settings: Partial<MenuSettings>, tools: LLMTool[]): Promise<any> {
         const host = settings.ollamaHost || process.env.OLLAMA_HOST;
         if (!host) throw new Error("Ollama Host URL missing.");
         
-        const paramsSchema = tool.parameters.map(p => `  "${p.name}": // type: ${p.type}, description: "${p.description}"${p.required ? ' (required)' : ''}`).join(',\n');
-        const finalSystemInstruction = `${systemInstruction}\n\nYou MUST respond with a single, valid JSON object that adheres to the following structure. Do not add any other text, explanation, or markdown formatting. Your entire response must be ONLY the JSON object.\n\nJSON Schema:\n{\n${paramsSchema}\n}`;
+        const toolsJson = JSON.stringify(tools.map(t => t.name));
+        const finalSystemInstruction = `${systemInstruction}\n\n${STANDARD_TOOL_CALL_SYSTEM_PROMPT.replace('{{TOOLS_JSON}}', toolsJson)}`;
         
         const body: any = { model: modelId, system: finalSystemInstruction, prompt: userContent.text, stream: false, format: 'json', options: { temperature: 0.2 } };
         if (userContent.images.length > 0) body.images = userContent.images;
@@ -188,7 +194,7 @@ class OllamaService extends BaseAiService {
 
         const parsed = parseJsonOrNull(jsonString);
         if (!parsed) throw new Error("Ollama provider returned invalid or empty JSON.");
-        return parsed;
+        return { name: parsed.name, arguments: parsed.arguments };
     }
 }
 
@@ -216,9 +222,9 @@ class HuggingFaceService extends BaseAiService {
         return this.generator;
     }
     
-    async callTool(userInput: string, systemInstruction: string, modelId: string, onProgress: (message: string) => void, tool: LLMTool): Promise<any> {
+    async callTool(userInput: string, systemInstruction: string, modelId: string, onProgress: (message: string) => void, tools: LLMTool[]): Promise<any> {
         const pipe = await this.getPipeline(modelId, onProgress);
-        const toolJson = JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters.map(({ name, type, description, required }) => ({ name, type, description, required })) });
+        const toolJson = JSON.stringify(tools.map(tool => ({ name: tool.name, description: tool.description, parameters: tool.parameters.map(({ name, type, description, required }) => ({ name, type, description, required })) })));
         const fullSystemInstruction = `${systemInstruction}\n\n${STANDARD_TOOL_CALL_SYSTEM_PROMPT.replace('{{TOOLS_JSON}}', toolJson)}`;
         const prompt = `<|system|>\n${fullSystemInstruction}<|end|>\n<|user|>\n${userInput}<|end|>\n<|assistant|>`;
         
@@ -228,7 +234,7 @@ class HuggingFaceService extends BaseAiService {
         
         const parsed = parseJsonOrNull(assistantResponse);
         if (!parsed) throw new Error("HuggingFace model returned invalid or empty JSON.");
-        return parsed.arguments || parsed; // Return arguments if available, else the whole object
+        return { name: parsed.name, arguments: parsed.arguments };
     }
 }
 
@@ -239,14 +245,14 @@ const openAiService = new OpenAIService();
 const ollamaService = new OllamaService();
 const huggingFaceService = new HuggingFaceService();
 
-export const callAiAndGetJson = async (
+export const getMusicAnalysis = async (
     userInput: string,
     systemInstruction: string,
     model: AIModel,
     onProgress: (message: string) => void,
-    tool: LLMTool,
     settings: Partial<MenuSettings>,
     context: AiContext,
+    tools: LLMTool[],
 ): Promise<any> => {
     onProgress(`Using ${model.provider} (${model.id})...`);
     const { textPrompt, multiModalParts } = buildUnifiedUserInput(userInput, context, model);
@@ -257,27 +263,19 @@ export const callAiAndGetJson = async (
         switch (model.provider) {
             case ModelProvider.GoogleAI: {
                 const geminiParts: Part[] = [{ text: textPrompt }, ...multiModalParts];
-                const result = await geminiService.callTool(geminiParts, systemInstruction, model.id, settings, tool);
-                onProgress(`Gemini response received.`);
-                return result;
+                return await geminiService.callTool(geminiParts, systemInstruction, model.id, settings, tools);
             }
             case ModelProvider.OpenAI_API: {
                 const openAiParts = [{ type: 'text', text: textPrompt }, ...multiModalParts];
-                const result = await openAiService.callTool(openAiParts, systemInstruction, model.id, settings, tool);
-                onProgress(`OpenAI API response received.`);
-                return result;
+                return await openAiService.callTool(openAiParts, systemInstruction, model.id, settings, tools);
             }
             case ModelProvider.Ollama: {
                  const images = multiModalParts.filter(p => p.type === 'image_url').map(p => p.image_url.url.split(',')[1]);
-                 const result = await ollamaService.callTool({ text: textPrompt, images }, systemInstruction, model.id, settings, tool);
-                 onProgress(`Ollama response received.`);
-                 return result;
+                 return await ollamaService.callTool({ text: textPrompt, images }, systemInstruction, model.id, settings, tools);
             }
             case ModelProvider.HuggingFace: {
                 if (context.audioClip || context.imageClip) onProgress("Warning: This model does not support audio/image input. Analyzing text only.");
-                const result = await huggingFaceService.callTool(textPrompt, systemInstruction, model.id, onProgress, tool);
-                onProgress(`HuggingFace response received.`);
-                return result;
+                return await huggingFaceService.callTool(textPrompt, systemInstruction, model.id, onProgress, tools);
             }
             default:
                 throw new Error(`Unsupported model provider: ${model.provider}`);
@@ -312,30 +310,27 @@ export const transcribeSpectrogramData = (freqData: Uint8Array | null): string =
     return `Freq Analysis - Sub-bass: ${describeEnergy(getBandEnergy(subBassBand))}, Bass: ${describeEnergy(getBandEnergy(bassBand))}, Mids: ${describeEnergy(getBandEnergy(midsBand))}, Highs: ${describeEnergy(getBandEnergy(highsBand))}`;
 };
 
-const soundRefinementProperties: { [key: string]: ToolParameter } = {
-    thought: { name: 'thought', type: 'string', description: "Your brief reasoning for the change you are making (e.g., 'The bass is muddy, I will reduce its decay').", required: true },
-    energyLevel: { name: 'energyLevel', type: 'number', description: "Overall energy. Affects tempo and pattern density. Range 0-1.", required: false },
-    harmonicComplexity: { name: 'harmonicComplexity', type: 'number', description: "Generates more intricate, chaotic melodies. Range 0-1.", required: false },
-    mood: { name: 'mood', type: 'number', description: "Musical mood. 0: Light, 1: Twilight, 2: Dark.", required: false },
-    kickPatternDensity: { name: 'kickPatternDensity', type: 'number', description: "Kick drum pattern density. Range 0-1.", required: false },
-    bassCutoff: { name: 'bassCutoff', type: 'number', description: "Bass filter cutoff. Lower is darker. Range 0-1.", required: false },
-    atmosLevel: { name: 'atmosLevel', type: 'number', description: "Volume of the atmospheric pad. Range 0-1.", required: false },
-    reverbMix: { name: 'reverbMix', type: 'number', description: "Amount of reverb effect. Range 0-1.", required: false },
-    reverbShimmer: { name: 'reverbShimmer', type: 'number', description: "Amount of ethereal, pitch-shifted reverb. Range 0-1.", required: false },
-};
+const soundRefinementProperties: ToolParameter[] = [
+    { name: 'thought', type: 'string', description: "Your brief reasoning for the change you are making (e.g., 'The bass is muddy, I will reduce its decay').", required: true },
+    { name: 'morphDurationMs', type: 'number', description: "Optional: Duration for smooth transition in milliseconds (e.g., 5000 for a 5s morph). Default is slow.", required: false },
+    { name: 'energyLevel', type: 'number', description: "Overall energy. Affects tempo and pattern density. Range 0-1.", required: false },
+    { name: 'harmonicComplexity', type: 'number', description: "Generates more intricate, chaotic melodies. Range 0-1.", required: false },
+    { name: 'mood', type: 'number', description: "Musical mood. 0: Light, 1: Twilight, 2: Dark.", required: false },
+    { name: 'kickPatternDensity', type: 'number', description: "Kick drum pattern density. Range 0-1.", required: false },
+    { name: 'bassCutoff', type: 'number', description: "Bass filter cutoff. Lower is darker. Range 0-1.", required: false },
+    { name: 'atmosLevel', type: 'number', description: "Volume of the atmospheric pad. Range 0-1.", required: false },
+    { name: 'reverbMix', type: 'number', description: "Amount of reverb effect. Range 0-1.", required: false },
+    { name: 'reverbShimmer', type: 'number', description: "Amount of ethereal, pitch-shifted reverb. Range 0-1.", required: false },
+];
 
-const fullSoundscapeProperties = (()=>{
-    const props = {...soundRefinementProperties};
-    delete (props as any).thought;
-    props.energyLevel.required = true;
-    props.harmonicComplexity.required = true;
-    props.mood.required = true;
-    return props;
+const fullSoundscapeProperties: ToolParameter[] = (() => {
+    const props = soundRefinementProperties.filter(p => p.name !== 'thought');
+    return props.map(p => p.name === 'energyLevel' || p.name === 'harmonicComplexity' || p.name === 'mood' ? { ...p, required: true } : p);
 })();
 
-const updateSoundParametersTool: LLMTool = { name: "update_sound_parameters", description: "Makes a targeted adjustment to musical parameters.", parameters: Object.values(soundRefinementProperties) };
-const generateMusicSettingsTool: LLMTool = { name: "generate_music_settings", description: "Generates a complete set of musical parameters based on a user's prompt.", parameters: Object.values(fullSoundscapeProperties) };
-const analyzeMusicTool: LLMTool = {
+export const updateSoundParametersTool: LLMTool = { name: "update_sound_parameters", description: "Makes a targeted adjustment to musical parameters.", parameters: soundRefinementProperties };
+export const generateMusicSettingsTool: LLMTool = { name: "generate_music_settings", description: "Generates a complete set of musical parameters based on a user's prompt.", parameters: fullSoundscapeProperties };
+export const analyzeMusicTool: LLMTool = {
   name: "summarize_synth_limitations",
   description: "Analyzes the current sound and provides a summary of the synthesizer engine's limitations for creating the desired genre (e.g., psytrance).",
   parameters: [{
@@ -346,8 +341,16 @@ const analyzeMusicTool: LLMTool = {
       items: { type: 'string' }
   }]
 };
+export const morphToGenreTool: LLMTool = {
+    name: "morph_to_genre",
+    description: "Smoothly transitions the sound to a predefined electronic music genre preset. Use this when the user asks for a specific style like 'psytrance', 'chillout', or 'darkpsy'.",
+    parameters: [
+        { name: 'genreName', type: 'string', description: `The name of the genre to morph to. Must be one of: 'Full-On Groove', 'Psy-Chill Ambience', 'Darkpsy Tension', 'Progressive Groove', 'Dub Echoes', 'Dark Psy-Chill'.`, required: true },
+        { name: 'morphDurationMs', type: 'number', description: "Optional: Duration for the morph in milliseconds (e.g., 8000 for 8s). Default is 8000.", required: false },
+    ]
+};
 
-export async function generateMusicSettings(prompt: string, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>, context: AiContext): Promise<Partial<MenuSettings>> {
+export async function generateMusicSettings(prompt: string, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>, context: AiContext): Promise<Partial<MenuSettings> & { morphDurationMs?: number }> {
     let systemInstruction: string;
     const baseSystemInstruction = "You are an expert sound designer for a deterministic chaotic synthesizer. Your task is to set the *baseline* parameters which are then modulated in real-time by a neural net based on user biofeedback. Your goal is to provide a solid creative foundation.";
 
@@ -360,57 +363,26 @@ export async function generateMusicSettings(prompt: string, model: AIModel, onPr
     }
 
     try {
-        return await callAiAndGetJson(prompt, systemInstruction, model, onProgress, generateMusicSettingsTool, settings, context);
+        const result = await getMusicAnalysis(prompt, systemInstruction, model, onProgress, settings, context, [generateMusicSettingsTool]);
+        return result.arguments;
     } catch (e) {
         console.error("AI did not generate valid music settings.", e);
         throw new Error(`AI failed to generate music settings. ${(e as Error).message}`);
     }
 }
 
-export async function getSoundRefinement(context: AiContext, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>): Promise<(Partial<MenuSettings> & { thought: string; }) | null> {
+export async function getSoundRefinement(context: AiContext, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>): Promise<(Partial<MenuSettings> & { thought: string; morphDurationMs?: number; }) | null> {
     const systemInstruction = `You are an AI Sound Designer. Your goal is to make the sound more intricate and engaging. Analyze the multimodal context. Decide which one or two baseline parameters to adjust. Make bold, creative changes. Justify your change in the 'thought' field.`;
     const prompt = "Based on the CURRENT STATE, what single, creative adjustment would make the sound more psychedelic and complex?";
     
     try {
-        const result = await callAiAndGetJson(prompt, systemInstruction, model, onProgress, updateSoundParametersTool, settings, context);
-        if (result && result.thought) {
-            return result;
+        const result = await getMusicAnalysis(prompt, systemInstruction, model, onProgress, settings, context, [updateSoundParametersTool]);
+        if (result && result.arguments && result.arguments.thought) {
+            return result.arguments;
         }
         return null;
     } catch (e) {
          console.error("AI did not suggest a valid refinement.", e);
          throw e;
-    }
-}
-
-export async function getMusicAnalysis(
-    userGoal: string,
-    model: AIModel,
-    onProgress: (msg: string) => void,
-    settings: Partial<MenuSettings>,
-    context: AiContext
-): Promise<{ limitations: string[] }> {
-    const systemInstruction = `You are a world-class psytrance and electronic music producer. You were given a specific goal: "${userGoal}".
-You have just tried to create this sound using an experimental synthesizer, and the results are in the provided context (audio, visuals, parameters). You have failed to create a professional, engaging track that meets the goal.
-
-Your task is to analyze WHY you failed.
-- Compare the provided context to the user's goal.
-- Identify what is preventing the sound from being professional-grade.
-- Be specific and technical. Instead of "bass is weak", say "Cannot create a punchy bassline because there's no control over sidechain compression from the kick".
-- Instead of "hats sound bad", say "The rhythmic synth lacks a dedicated noise color or filter type parameter, making the hi-hats sound metallic and harsh".
-- Your goal is to provide a list of concrete limitations or missing features that a developer could use to improve the synthesizer.
-You MUST provide your response using the 'summarize_synth_limitations' tool.`;
-
-    const prompt = `Here is the context of my attempt. Now, provide your analysis of the synthesizer's limitations that prevented me from achieving my goal.`;
-
-    try {
-        const result = await callAiAndGetJson(prompt, systemInstruction, model, onProgress, analyzeMusicTool, settings, context);
-        if (!result || !Array.isArray(result.limitations)) {
-            throw new Error("AI returned an invalid format for the analysis.");
-        }
-        return result;
-    } catch (e) {
-        console.error("AI analysis failed.", e);
-        throw new Error(`AI analysis failed. ${(e as Error).message}`);
     }
 }

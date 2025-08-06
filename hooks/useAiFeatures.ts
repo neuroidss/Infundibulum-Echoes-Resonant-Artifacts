@@ -1,9 +1,10 @@
 
+
 import { useRef, useCallback, useEffect } from 'react';
 import type { MenuSettings, AiContext, AiContextItem } from '../types';
 import { ModelProvider } from '../types';
-import { AI_MODELS } from '../constants';
-import { generateMusicSettings, getSoundRefinement, transcribeSpectrogramData, getMusicAnalysis } from '../lib/ai';
+import { AI_MODELS, TUNING_SCRIPTS } from '../constants';
+import { generateMusicSettings, getSoundRefinement, transcribeSpectrogramData, getMusicAnalysis, generateMusicSettingsTool, morphToGenreTool, updateSoundParametersTool, analyzeMusicTool } from '../lib/ai';
 
 interface UseAiFeaturesProps {
     menuSettings: MenuSettings;
@@ -13,6 +14,7 @@ interface UseAiFeaturesProps {
     showLoading: (visible: boolean, message?: string, progress?: string) => void;
     setMenuSettings: React.Dispatch<React.SetStateAction<MenuSettings>>;
     handleMenuSettingChange: <K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => void;
+    smoothlyApplySettings: (targetParams: Partial<MenuSettings>, durationMs: number) => void;
     getInputState: () => Pick<AiContext, 'mic' | 'motion' | 'outputRhythm'>;
     getHnmAnomaly: () => number;
     captureMultimodalContext: (options?: { audio?: boolean; image?: boolean; spectrogram?: boolean; }) => Promise<{
@@ -24,7 +26,7 @@ interface UseAiFeaturesProps {
 
 export const useAiFeatures = ({
     menuSettings, isAiDisabled, isInteractive, showWarning, showLoading, setMenuSettings,
-    handleMenuSettingChange, getInputState, getHnmAnomaly, captureMultimodalContext,
+    handleMenuSettingChange, smoothlyApplySettings, getInputState, getHnmAnomaly, captureMultimodalContext,
 }: UseAiFeaturesProps) => {
 
     const aiCopilotIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -52,26 +54,51 @@ export const useAiFeatures = ({
             const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
             if (!selectedModel) throw new Error("No valid AI model selected.");
             
-            // AI Muse is primarily text-driven, but we provide simple context.
             const { mic, motion, outputRhythm } = getInputState();
-            const spectrogramText = transcribeSpectrogramData(null); // No spectrogram for simple prompt
+            const spectrogramText = transcribeSpectrogramData(null); // Passing null as there's no live data here
 
             const context: AiContext = {
-                mic,
-                motion,
-                outputRhythm,
+                mic, motion, outputRhythm,
                 hnmAnomaly: getHnmAnomaly(),
                 currentSettings: menuSettings,
                 spectrogramText
             };
             
-            const newSettings = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, context);
-            setMenuSettings(prev => ({
-                ...prev, 
-                ...newSettings, 
-                aiCallCount: (prev.aiCallCount || 0) + 1,
-            }));
-            showWarning("AI Muse has created a new soundscape!", 4000);
+            const systemInstruction = "You are an expert DJ and sound designer. You have two ways to respond: 1. Use the `generate_music_settings` tool to create a completely new sound from scratch based on the user's creative prompt. 2. Use the `morph_to_genre` tool to smoothly transition to a pre-defined, high-quality genre preset. Use the genre tool if the user's request directly and clearly maps to one of the available genres.";
+            const toolsToUse = [generateMusicSettingsTool, morphToGenreTool];
+            const aiResponse = await getMusicAnalysis(prompt, systemInstruction, selectedModel, handleAiProgress, menuSettings, context, toolsToUse);
+            
+            if (!aiResponse || !aiResponse.name) {
+                throw new Error("AI did not return a valid tool call.");
+            }
+        
+            const { name, arguments: args } = aiResponse;
+            const duration = args.morphDurationMs && typeof args.morphDurationMs === 'number' ? args.morphDurationMs : 8000;
+        
+            switch (name) {
+                case generateMusicSettingsTool.name: {
+                    const { morphDurationMs, ...newSettings } = args;
+                    smoothlyApplySettings(newSettings, duration);
+                    setMenuSettings(prev => ({...prev, aiCallCount: (prev.aiCallCount || 0) + 1}));
+                    showWarning("AI Muse has morphed the soundscape!", 4000);
+                    break;
+                }
+                case morphToGenreTool.name: {
+                    const genreName = args.genreName;
+                    const script = TUNING_SCRIPTS['System']?.find(s => s.name === genreName);
+                    if (script && script.steps[0]) {
+                        smoothlyApplySettings(script.steps[0].params, duration);
+                        setMenuSettings(prev => ({...prev, aiCallCount: (prev.aiCallCount || 0) + 1}));
+                        showWarning(`AI Muse is morphing to ${genreName}...`, 4000);
+                    } else {
+                        throw new Error(`AI tried to use an unknown genre: ${genreName}`);
+                    }
+                    break;
+                }
+                default:
+                    throw new Error(`AI returned an unknown tool: ${name}`);
+            }
+
         } catch (error) {
             const errorMsg = (error as Error).message;
             console.error("AI Muse generation failed:", error);
@@ -79,7 +106,7 @@ export const useAiFeatures = ({
         } finally {
             showLoading(false);
         }
-    }, [showLoading, showWarning, menuSettings, isAiDisabled, handleAiProgress, setMenuSettings, getInputState, getHnmAnomaly]);
+    }, [showLoading, showWarning, menuSettings, isAiDisabled, handleAiProgress, setMenuSettings, getInputState, getHnmAnomaly, smoothlyApplySettings]);
 
     const handleCopilotRefine = useCallback(async () => {
         if (isCopilotThinkingRef.current || isAiDisabled) return;
@@ -102,14 +129,10 @@ export const useAiFeatures = ({
             const { mic, motion, outputRhythm } = getInputState();
             
             const context: AiContext = {
-                mic,
-                motion,
-                outputRhythm,
+                mic, motion, outputRhythm,
                 hnmAnomaly: getHnmAnomaly(),
                 currentSettings: currentRelevantSettings,
-                audioClip,
-                imageClip,
-                spectrogramClip,
+                audioClip, imageClip, spectrogramClip,
                 spectrogramText: transcribeSpectrogramData(spectrogramClip?.rawData ?? null),
             };
 
@@ -117,11 +140,13 @@ export const useAiFeatures = ({
             
             if (result) {
                 const thought = result.thought || "Co-pilot adjusted parameters.";
-                const { thought: _t, ...paramsToUpdate } = result;
+                const { thought: _t, morphDurationMs, ...paramsToUpdate } = result;
+                const duration = typeof morphDurationMs === 'number' ? morphDurationMs : 4000;
 
                 handleMenuSettingChange('aiCopilotThought', thought);
                 if (Object.keys(paramsToUpdate).length > 0) {
-                     setMenuSettings(prev => ({...prev, ...paramsToUpdate, aiCallCount: (prev.aiCallCount || 0) + 1}));
+                     smoothlyApplySettings(paramsToUpdate, duration);
+                     setMenuSettings(prev => ({...prev, aiCallCount: (prev.aiCallCount || 0) + 1}));
                 }
             } else {
                 handleMenuSettingChange('aiCopilotThought', 'No changes suggested.');
@@ -135,7 +160,7 @@ export const useAiFeatures = ({
             isCopilotThinkingRef.current = false;
             showLoading(false);
         }
-    }, [isAiDisabled, menuSettings, handleAiProgress, showWarning, showLoading, captureMultimodalContext, getInputState, getHnmAnomaly, handleMenuSettingChange, setMenuSettings]);
+    }, [isAiDisabled, menuSettings, handleAiProgress, showWarning, showLoading, captureMultimodalContext, getInputState, getHnmAnomaly, handleMenuSettingChange, setMenuSettings, smoothlyApplySettings]);
 
     const runPsyCoreModulatorIteration = useCallback(async () => {
         if (isPsyCoreModulatorRunning.current || isAiDisabled) return;
@@ -154,10 +179,7 @@ export const useAiFeatures = ({
 
             const currentContextItem: AiContextItem = {
                 ...capturedContext,
-                mic,
-                motion,
-                outputRhythm,
-                hnmAnomaly,
+                mic, motion, outputRhythm, hnmAnomaly,
                 currentSettings: currentRelevantSettings,
                 spectrogramText: transcribeSpectrogramData(capturedContext.spectrogramClip?.rawData ?? null),
             };
@@ -172,13 +194,12 @@ export const useAiFeatures = ({
 
             const prompt = `Based on the user's current state (motion peak: ${motion.rhythmPeak.toFixed(2)}, sonic chaos/anomaly: ${hnmAnomaly.toFixed(2)}), generate a new soundscape that synergizes with and amplifies their state. If motion is high, increase energy. If chaos is high, make it more complex and interesting.`;
             
-            const newSettings = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, aiContext);
+            const result = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, aiContext);
+            const { morphDurationMs, ...newSettings } = result;
+            const duration = typeof morphDurationMs === 'number' ? morphDurationMs : 10000;
             
-            setMenuSettings(prev => ({
-                ...prev, 
-                ...newSettings, 
-                aiCallCount: (prev.aiCallCount || 0) + 1,
-            }));
+            smoothlyApplySettings(newSettings, duration);
+            setMenuSettings(prev => ({ ...prev, aiCallCount: (prev.aiCallCount || 0) + 1 }));
             
             psyCoreModulatorStateRef.current = {
                 previousContext: currentContextItem,
@@ -195,7 +216,7 @@ export const useAiFeatures = ({
             isPsyCoreModulatorRunning.current = false;
             showLoading(false);
         }
-    }, [isAiDisabled, menuSettings, showLoading, handleAiProgress, getInputState, getHnmAnomaly, setMenuSettings, showWarning, captureMultimodalContext]);
+    }, [isAiDisabled, menuSettings, showLoading, handleAiProgress, getInputState, getHnmAnomaly, setMenuSettings, showWarning, captureMultimodalContext, smoothlyApplySettings]);
 
     const handleEngineerAndAnalyze = useCallback(async (prompt: string) => {
         if (isAiDisabled) {
@@ -215,14 +236,11 @@ export const useAiFeatures = ({
             showLoading(true, "AI Engineer: Generating attempt...", "Phase 1/3");
             const { mic, motion, outputRhythm } = getInputState();
             const genContext: AiContext = { mic, motion, outputRhythm, hnmAnomaly: getHnmAnomaly(), currentSettings: menuSettings, spectrogramText: '' };
-            const newSettings = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, genContext);
+            const genResult = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, genContext);
+            const { morphDurationMs, ...newSettings } = genResult;
             
             // Apply settings immediately and count as one call
-            setMenuSettings(prev => ({
-                ...prev,
-                ...newSettings,
-                aiCallCount: (prev.aiCallCount || 0) + 1,
-            }));
+            setMenuSettings(prev => ({ ...prev, ...newSettings, aiCallCount: (prev.aiCallCount || 0) + 1 }));
     
             // Step 2: Wait for sound to play
             showLoading(true, "AI Engineer: Playing result...", "Phase 2/3");
@@ -238,17 +256,18 @@ export const useAiFeatures = ({
             const analysisContext: AiContext = {
                 mic: getInputState().mic, motion: getInputState().motion, outputRhythm: getInputState().outputRhythm,
                 hnmAnomaly: getHnmAnomaly(),
-                currentSettings: currentRelevantSettings, // Use the *current* settings after the change
+                currentSettings: currentRelevantSettings,
                 audioClip, imageClip, spectrogramClip,
                 spectrogramText: transcribeSpectrogramData(spectrogramClip?.rawData ?? null),
             };
             
-            const analysisResult = await getMusicAnalysis(prompt, selectedModel, handleAiProgress, menuSettings, analysisContext);
+            const analysisSystemInstruction = "You are a synthesizer engineer. Your task is to analyze why a sound generation attempt failed to meet the user's goal. You MUST use the 'summarize_synth_limitations' tool to report your findings.";
+            const analysisResult = await getMusicAnalysis(prompt, analysisSystemInstruction, selectedModel, handleAiProgress, menuSettings, analysisContext, [analyzeMusicTool]);
             
-            const report = `AI Engineer Report for Goal: "${prompt}"\n\nI failed to achieve this goal. Here are the technical limitations of the synth engine that prevented success:\n\n- ${analysisResult.limitations.join('\n- ')}`;
+            const report = `AI Engineer Report for Goal: "${prompt}"\n\nI failed to achieve this goal. Here are the technical limitations of the synth engine that prevented success:\n\n- ${analysisResult.arguments.limitations.join('\n- ')}`;
             handleMenuSettingChange('aiDebugLog', report);
             handleMenuSettingChange('showAiDebugLog', true);
-            setMenuSettings(prev => ({ ...prev, aiCallCount: (prev.aiCallCount || 0) + 1 })); // Count analysis as another call
+            setMenuSettings(prev => ({ ...prev, aiCallCount: (prev.aiCallCount || 0) + 1 }));
     
         } catch (error) {
             const errorMsg = (error as Error).message;

@@ -67,80 +67,78 @@ export const TUNING_SCRIPTS: InstrumentScripts = {
             name: "Full-On Groove",
             description: "Тест сбалансированного Full-On грува. Показывает синергию Kick-Bass-Lead.",
             steps: [{ duration: 30000, params: {
-                masterBPM: 145,
-                kickPatternDensity: 1,
-                kickLevel: 1,
-                kickAmpDecay: 0.09,
-                kickPitchDecay: 0.015,
-                kickDistortion: 0.2,
-                bassPatternDensity: 1,
-                bassLevel: 0.85,
-                bassAmpDecay: 0.07,
-                bassFilterDecay: 0.1,
-                bassCutoff: 0.25,
-                bassReso: 0.6,
-                bassEnvAmt: 0.8,
-                rhythmPatternDensity: 1,
-                rhythmLevel: 0.4,
-                rhythmHpfCutoff: 0.8,
-                rhythmClosedDecay: 0.04,
-                rhythmOpenDecay: 0.18,
-                snarePatternDensity: 0.5,
-                snareLevel: 0.5,
-                leadWaveformMix: 1,
-                leadPatternDensity: 0.7,
-                leadLevel: 0.7,
-                leadDecay: 0.2,
-                leadCutoff: 0.4,
-                atmosLevel: 0,
-                riserLevel: 0,
-                delayMix: 0.3,
-                reverbMix: 0.15
+                masterBPM: 145, kickPatternDensity: 1, kickLevel: 1, kickTune: 0.4, kickPitchDecay: 0.01, kickAmpDecay: 0.09, kickDistortion: 0.3,
+                bassPatternDensity: 1, bassLevel: 0.85, bassAmpDecay: 0.07, bassFilterDecay: 0.1, bassCutoff: 0.28, bassReso: 0.6, bassEnvAmt: 0.8,
+                rhythmPatternDensity: 1, rhythmLevel: 0.5, rhythmHpfCutoff: 0.85, rhythmClosedDecay: 0.03, rhythmOpenDecay: 0.15,
+                snarePatternDensity: 0.5, snareNoiseLevel: 1.0, snareBodyLevel: 0.3, snareNoiseDecay: 0.1, snareLevel: 0.5,
+                leadWaveformMix: 1, leadPatternDensity: 0.7, leadLevel: 0.7, leadDecay: 0.2, leadCutoff: 0.4,
+                atmosLevel: 0, riserLevel: 0, delayMix: 0.3, reverbMix: 0.2
             }, description: "Full-On Groove" }]
         },
         {
             name: "Psy-Chill Ambience",
             description: "Тест глубокой атмосферы Psy-Chill. Фокус на пэдах, эффектах и 'пузырях'.",
             steps: [{ duration: 30000, params: {
-                masterBPM: 100,
-                kickPatternDensity: 0.6,
-                kickLevel: 0.8,
-                kickAmpDecay: 0.5,
-                bassPatternDensity: 0.4,
-                bassLevel: 0.9,
-                bassAmpDecay: 0.7,
-                bassCutoff: 0.15,
-                rhythmPatternDensity: 0.3,
-                rhythmLevel: 0.3,
-                rhythmHpfCutoff: 0.6,
-                snarePatternDensity: 0.1,
-                snareLevel: 0.3,
-                leadWaveformMix: 0,
-                leadFmAmount: 0.3,
-                leadPatternDensity: 0.5,
-                leadLevel: 0.6,
-                leadDecay: 0.8,
-                atmosLevel: 0.6,
-                atmosCutoff: 0.3,
-                delayMix: 0.5,
-                delayFeedback: 0.8,
-                reverbMix: 0.6,
-                reverbSize: 0.95
+                masterBPM: 100, kickPatternDensity: 0.5, kickLevel: 0.7, kickAmpDecay: 0.6,
+                bassPatternDensity: 0.3, bassLevel: 0.9, bassAmpDecay: 0.8, bassCutoff: 0.1, bassReso: 0.2,
+                rhythmPatternDensity: 0.2, rhythmLevel: 0.2, rhythmHpfCutoff: 0.7,
+                snarePatternDensity: 0.1, snareLevel: 0.2,
+                leadWaveformMix: 0, leadFmAmount: 0.1, leadPatternDensity: 0.4, leadLevel: 0.5, leadDecay: 0.9,
+                atmosLevel: 0.8, atmosCutoff: 0.4,
+                delayMix: 0.6, delayFeedback: 0.85, reverbMix: 0.7, reverbSize: 0.98, reverbShimmer: 0.5
             }, description: "Psy-Chill Ambience" }]
         },
         {
             name: "Darkpsy Tension",
             description: "Тест агрессивного Darkpsy. Демонстрация FM, дисторшна и высокого темпа.",
             steps: [{ duration: 30000, params: {
-                masterBPM: 165,
-                kickPatternDensity: 1.0, kickLevel: 1.0, kickAmpDecay: 0.07, kickDistortion: 0.5,
-                bassPatternDensity: 1.0, bassLevel: 0.8, bassAmpDecay: 0.06, bassDistortion: 0.6,
-                rhythmPatternDensity: 1.0, rhythmLevel: 0.4,
+                masterBPM: 175, kickPatternDensity: 1, kickLevel: 1, kickAmpDecay: 0.07, kickDistortion: 0.6,
+                bassPatternDensity: 1, bassLevel: 0.8, bassAmpDecay: 0.06, bassDistortion: 0.8,
+                rhythmPatternDensity: 1, rhythmLevel: 0.4,
                 snarePatternDensity: 0.5, snareLevel: 0.5,
-                leadWaveformMix: 0.4, leadFmAmount: 0.9, leadDistortion: 0.7, leadPatternDensity: 0.8, leadLevel: 0.75, leadDecay: 0.15,
-                atmosLevel: 0.3,
-                delayMix: 0.4, reverbMix: 0.3,
+                leadWaveformMix: 0.2, leadFmAmount: 1.0, leadDistortion: 0.8, leadPatternDensity: 0.9, leadLevel: 0.75, leadDecay: 0.1,
+                atmosLevel: 0.4, delayMix: 0.4, reverbMix: 0.3
             }, description: "Darkpsy Tension" }]
+        },
+        {
+            name: "Progressive Groove",
+            description: "Тест качающего Progressive. Ровный бас, мелодичные пэды.",
+            steps: [{ duration: 30000, params: {
+                masterBPM: 138, kickPatternDensity: 1, kickLevel: 0.9, kickAmpDecay: 0.12, kickDistortion: 0.1,
+                bassPatternDensity: 1, bassLevel: 0.9, bassAmpDecay: 0.15, bassFilterDecay: 0.2, bassCutoff: 0.2, bassReso: 0.5,
+                rhythmPatternDensity: 0.8, rhythmLevel: 0.4, rhythmHpfCutoff: 0.8,
+                snarePatternDensity: 0.5, snareLevel: 0.4,
+                leadWaveformMix: 0.7, leadFmAmount: 0.2, leadDistortion: 0.1, leadPatternDensity: 0.6, leadLevel: 0.6, leadDecay: 0.4,
+                atmosLevel: 0.5, atmosEvolutionRate: 0.5, atmosCutoff: 0.5,
+                delayMix: 0.35, delayFeedback: 0.6, reverbMix: 0.3, reverbSize: 0.8
+            }, description: "Progressive Groove" }]
+        },
+        {
+            name: "Dub Echoes",
+            description: "Тест даб-атмосферы. Медленный темп, саб-бас и дилэй.",
+            steps: [{ duration: 30000, params: {
+                masterBPM: 90, kickPatternDensity: 0.4, kickLevel: 0.8, kickAmpDecay: 0.7, kickTune: 0.2, kickDistortion: 0,
+                bassPatternDensity: 0.2, bassLevel: 1.0, bassAmpDecay: 0.9, bassCutoff: 0.08, bassOctave: 0,
+                rhythmPatternDensity: 0,
+                snarePatternDensity: 0.5, snareLevel: 0.6, snareNoiseDecay: 0.2,
+                leadLevel: 0,
+                atmosLevel: 0.3,
+                delayMix: 0.7, delayFeedback: 0.9, delayFilterCutoff: 0.3, delayTimeMode: 3,
+                reverbMix: 0.6, reverbSize: 0.95
+            }, description: "Dub Echoes" }]
+        },
+        {
+            name: "Dark Psy-Chill",
+            description: "Тест гибрида Dark и Chill. Медленно, мрачно, атмосферно.",
+            steps: [{ duration: 30000, params: {
+                masterBPM: 100, kickPatternDensity: 0.4, kickLevel: 0.7, kickAmpDecay: 0.6,
+                bassPatternDensity: 0.3, bassLevel: 0.9, bassAmpDecay: 0.8, bassCutoff: 0.15,
+                rhythmPatternDensity: 0.1, rhythmLevel: 0.1,
+                snarePatternDensity: 0.1, snareLevel: 0.2,
+                leadWaveformMix: 0.1, leadFmAmount: 0.6, leadDistortion: 0.3, leadPatternDensity: 0.3, leadLevel: 0.5, leadDecay: 0.9,
+                atmosLevel: 0.8, atmosCutoff: 0.2, atmosReso: 0.7,
+                delayMix: 0.5, delayFeedback: 0.8, reverbMix: 0.7, reverbSize: 0.95
+            }, description: "Dark Psy-Chill" }]
         }
     ],
     "Master Bus": [{

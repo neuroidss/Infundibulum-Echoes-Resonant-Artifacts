@@ -6,10 +6,6 @@ import { VERSION, AI_MODELS } from '../constants';
 
 type onChangeType = <K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => void;
 
-const lerp = (start: number, end: number, amt: number): number => {
-  return (1 - amt) * start + amt * end;
-};
-
 // Helper function to create the detailed instrument and FX GUI
 const createInstrumentAndFxGui = (
     parentFolder: GUIType, 
@@ -106,6 +102,7 @@ const createInstrumentAndFxGui = (
 interface GuiControllerProps {
     menuSettings: MenuSettings;
     onMenuSettingChange: <K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => void;
+    smoothlyApplySettings: (targetParams: Partial<MenuSettings>, durationMs: number) => void;
     resetMenuToDefaults: () => void;
     resetHnmRag: () => void;
     isDisabled: boolean;
@@ -117,6 +114,7 @@ interface GuiControllerProps {
 const GuiController: React.FC<GuiControllerProps> = ({
     menuSettings,
     onMenuSettingChange,
+    smoothlyApplySettings,
     resetMenuToDefaults,
     resetHnmRag,
     isDisabled,
@@ -126,92 +124,85 @@ const GuiController: React.FC<GuiControllerProps> = ({
 }) => {
     const guiRef = useRef<GUI | null>(null);
     const controlsRef = useRef<any>({});
-    const propsRef = useRef({ onMenuSettingChange, resetMenuToDefaults, resetHnmRag, toggleAiConfigModal, handleTrainOnArtifacts });
-    propsRef.current = { onMenuSettingChange, resetMenuToDefaults, resetHnmRag, toggleAiConfigModal, handleTrainOnArtifacts };
-
-    const createSmoothTransitioner = (targetParams: Partial<MenuSettings>, durationMs: number) => {
-        const startTime = performance.now();
-        
-        // Create a snapshot of the starting parameters, which may contain NaN
-        const startParamsSnapshot: { [k: string]: any } = {};
-        const numericKeysToAnimate: Array<keyof MenuSettings> = [];
-    
-        for (const key of Object.keys(targetParams) as Array<keyof MenuSettings>) {
-            const endValue = targetParams[key];
-            const startValue = menuSettings[key];
-    
-            if (typeof endValue === 'number') {
-                // Store the start value, even if it's NaN. We'll handle it in the loop.
-                startParamsSnapshot[key] = startValue;
-                numericKeysToAnimate.push(key);
-            } else if (startValue !== endValue) {
-                // Instantly set non-numeric values.
-                if (endValue !== undefined && typeof endValue !== 'object') {
-                    propsRef.current.onMenuSettingChange(key, endValue);
-                }
-            }
-        }
-    
-        const transitionFrame = () => {
-            const elapsedTime = performance.now() - startTime;
-            const progress = Math.min(elapsedTime / durationMs, 1.0);
-            const easedProgress = progress < 0.5 ? 4 * progress * progress * progress : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-    
-            for (const key of numericKeysToAnimate) {
-                let startValue = startParamsSnapshot[key] as number;
-                const endValue = targetParams[key] as number;
-    
-                // *** ROBUSTNESS FIX ***
-                // If the starting value from the main state was invalid (NaN),
-                // "heal" it by snapping it to the target value for this animation.
-                // This prevents NaN from propagating via the lerp function.
-                if (!isFinite(startValue)) {
-                    startValue = endValue;
-                }
-    
-                // Now, lerp is guaranteed to receive valid numbers.
-                const currentValue = lerp(startValue, endValue, easedProgress);
-                propsRef.current.onMenuSettingChange(key, currentValue);
-            }
-    
-            if (progress < 1.0) {
-                requestAnimationFrame(transitionFrame);
-            }
-        };
-        
-        requestAnimationFrame(transitionFrame);
-    };
+    const propsRef = useRef({ onMenuSettingChange, smoothlyApplySettings, resetMenuToDefaults, resetHnmRag, toggleAiConfigModal, handleTrainOnArtifacts });
+    propsRef.current = { onMenuSettingChange, smoothlyApplySettings, resetMenuToDefaults, resetHnmRag, toggleAiConfigModal, handleTrainOnArtifacts };
 
     const runFullOnTest = () => {
-        const fullOnParams: Partial<MenuSettings> = {
-          masterBPM: 145,
-          kickPatternDensity: 1.0, kickAmpDecay: 0.09, kickPitchDecay: 0.015, kickLevel: 1.0,
-          bassPatternDensity: 1.0, bassOctave: 1, bassAmpDecay: 0.07, bassFilterDecay: 0.1, bassCutoff: 0.25, bassReso: 0.6, bassEnvAmt: 0.8, bassLevel: 0.85,
-          leadWaveformMix: 1.0,
-          leadPatternDensity: 0.7, leadOctave: 1, leadDecay: 0.2, leadCutoff: 0.4, leadReso: 0.5, leadEnvAmt: 0.6, leadLevel: 0.7,
-          snarePatternDensity: 0.5, snareLevel: 0.5,
-          rhythmPatternDensity: 1.0, rhythmOpenDecay: 0.15, rhythmLevel: 0.4,
-          delayTimeMode: 2, delayFeedback: 0.6, delayMix: 0.3,
-          reverbMix: 0.2
+        const params: Partial<MenuSettings> = {
+            masterBPM: 145, kickPatternDensity: 1, kickLevel: 1, kickTune: 0.4, kickPitchDecay: 0.01, kickAmpDecay: 0.09, kickDistortion: 0.3,
+            bassPatternDensity: 1, bassLevel: 0.85, bassAmpDecay: 0.07, bassFilterDecay: 0.1, bassCutoff: 0.28, bassReso: 0.6, bassEnvAmt: 0.8,
+            rhythmPatternDensity: 1, rhythmLevel: 0.5, rhythmHpfCutoff: 0.85, rhythmClosedDecay: 0.03, rhythmOpenDecay: 0.15,
+            snarePatternDensity: 0.5, snareNoiseLevel: 1.0, snareBodyLevel: 0.3, snareNoiseDecay: 0.1, snareLevel: 0.5,
+            leadWaveformMix: 1, leadPatternDensity: 0.7, leadLevel: 0.7, leadDecay: 0.2, leadCutoff: 0.4,
+            atmosLevel: 0, riserLevel: 0, delayMix: 0.3, reverbMix: 0.2
         };
-        createSmoothTransitioner(fullOnParams, 5000);
+        propsRef.current.smoothlyApplySettings(params, 5000);
     };
 
     const runPsyChillTest = () => {
-        const psyChillParams: Partial<MenuSettings> = {
-            masterBPM: 110,
-            kickPatternDensity: 0.7, kickAmpDecay: 0.4, kickPitchDecay: 0.05, kickLevel: 0.8,
-            bassPatternDensity: 0.5, bassOctave: 0, bassAmpDecay: 0.5, bassFilterDecay: 0.6, bassCutoff: 0.15, bassReso: 0.3, bassEnvAmt: 0.4, bassLevel: 0.9,
-            leadWaveformMix: 0.0,
-            leadFmAmount: 0.2,
-            leadPatternDensity: 0.4, leadOctave: 2, leadDecay: 0.8, leadCutoff: 0.3, leadReso: 0.6, leadEnvAmt: 0.7, leadLevel: 0.6,
-            rhythmPatternDensity: 0.3,
-            delayTimeMode: 1, delayFeedback: 0.8, delayStereo: 0.7, delayMix: 0.5,
-            reverbSize: 0.95, reverbDamp: 0.2, reverbMix: 0.6
+        const params: Partial<MenuSettings> = {
+            masterBPM: 100, kickPatternDensity: 0.5, kickLevel: 0.7, kickAmpDecay: 0.6,
+            bassPatternDensity: 0.3, bassLevel: 0.9, bassAmpDecay: 0.8, bassCutoff: 0.1, bassReso: 0.2,
+            rhythmPatternDensity: 0.2, rhythmLevel: 0.2, rhythmHpfCutoff: 0.7,
+            snarePatternDensity: 0.1, snareLevel: 0.2,
+            leadWaveformMix: 0, leadFmAmount: 0.1, leadPatternDensity: 0.4, leadLevel: 0.5, leadDecay: 0.9,
+            atmosLevel: 0.8, atmosCutoff: 0.4,
+            delayMix: 0.6, delayFeedback: 0.85, reverbMix: 0.7, reverbSize: 0.98, reverbShimmer: 0.5
         };
-        createSmoothTransitioner(psyChillParams, 8000);
+        propsRef.current.smoothlyApplySettings(params, 8000);
     };
 
+    const runDarkpsyTest = () => {
+        const params: Partial<MenuSettings> = {
+            masterBPM: 175, kickPatternDensity: 1, kickLevel: 1, kickAmpDecay: 0.07, kickDistortion: 0.6,
+            bassPatternDensity: 1, bassLevel: 0.8, bassAmpDecay: 0.06, bassDistortion: 0.8,
+            rhythmPatternDensity: 1, rhythmLevel: 0.4,
+            snarePatternDensity: 0.5, snareLevel: 0.5,
+            leadWaveformMix: 0.2, leadFmAmount: 1.0, leadDistortion: 0.8, leadPatternDensity: 0.9, leadLevel: 0.75, leadDecay: 0.1,
+            atmosLevel: 0.4, delayMix: 0.4, reverbMix: 0.3
+        };
+        propsRef.current.smoothlyApplySettings(params, 6000);
+    };
+
+    const runProgressiveTest = () => {
+        const params: Partial<MenuSettings> = {
+            masterBPM: 138, kickPatternDensity: 1, kickLevel: 0.9, kickAmpDecay: 0.12, kickDistortion: 0.1,
+            bassPatternDensity: 1, bassLevel: 0.9, bassAmpDecay: 0.15, bassFilterDecay: 0.2, bassCutoff: 0.2, bassReso: 0.5,
+            rhythmPatternDensity: 0.8, rhythmLevel: 0.4, rhythmHpfCutoff: 0.8,
+            snarePatternDensity: 0.5, snareLevel: 0.4,
+            leadWaveformMix: 0.7, leadFmAmount: 0.2, leadDistortion: 0.1, leadPatternDensity: 0.6, leadLevel: 0.6, leadDecay: 0.4,
+            atmosLevel: 0.5, atmosEvolutionRate: 0.5, atmosCutoff: 0.5,
+            delayMix: 0.35, delayFeedback: 0.6, reverbMix: 0.3, reverbSize: 0.8
+        };
+        propsRef.current.smoothlyApplySettings(params, 7000);
+    };
+
+    const runDubTest = () => {
+        const params: Partial<MenuSettings> = {
+            masterBPM: 90, kickPatternDensity: 0.4, kickLevel: 0.8, kickAmpDecay: 0.7, kickTune: 0.2, kickDistortion: 0,
+            bassPatternDensity: 0.2, bassLevel: 1.0, bassAmpDecay: 0.9, bassCutoff: 0.08, bassOctave: 0,
+            rhythmPatternDensity: 0,
+            snarePatternDensity: 0.5, snareLevel: 0.6, snareNoiseDecay: 0.2,
+            leadLevel: 0,
+            atmosLevel: 0.3,
+            delayMix: 0.7, delayFeedback: 0.9, delayFilterCutoff: 0.3, delayTimeMode: 3,
+            reverbMix: 0.6, reverbSize: 0.95
+        };
+        propsRef.current.smoothlyApplySettings(params, 8000);
+    };
+
+    const runDarkChillTest = () => {
+        const params: Partial<MenuSettings> = {
+            masterBPM: 100, kickPatternDensity: 0.4, kickLevel: 0.7, kickAmpDecay: 0.6,
+            bassPatternDensity: 0.3, bassLevel: 0.9, bassAmpDecay: 0.8, bassCutoff: 0.15,
+            rhythmPatternDensity: 0.1, rhythmLevel: 0.1,
+            snarePatternDensity: 0.1, snareLevel: 0.2,
+            leadWaveformMix: 0.1, leadFmAmount: 0.6, leadDistortion: 0.3, leadPatternDensity: 0.3, leadLevel: 0.5, leadDecay: 0.9,
+            atmosLevel: 0.8, atmosCutoff: 0.2, atmosReso: 0.7,
+            delayMix: 0.5, delayFeedback: 0.8, reverbMix: 0.7, reverbSize: 0.95
+        };
+        propsRef.current.smoothlyApplySettings(params, 8000);
+    };
 
     useEffect(() => {
         if (guiRef.current) {
@@ -241,15 +232,26 @@ const GuiController: React.FC<GuiControllerProps> = ({
         controlsRef.current.aiCopilotToggle = aiModesFolder.add(menuSettings, 'enableAiCopilotMode').name('AI Co-pilot').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableAiCopilotMode', value));
         controlsRef.current.psyCoreModulatorToggle = aiModesFolder.add(menuSettings, 'enablePsyCoreModulatorMode').name('Psy-Core Modulator').onChange(value => propsRef.current.onMenuSettingChange('enablePsyCoreModulatorMode', value));
         
+        const genreMorphFolder = aiFolder.addFolder('Genre Morphing').open();
+        const testRunners = { 
+            runFullOn: runFullOnTest, 
+            runProgressive: runProgressiveTest,
+            runPsyChill: runPsyChillTest, 
+            runDarkpsy: runDarkpsyTest, 
+            runDarkChill: runDarkChillTest,
+            runDub: runDubTest 
+        };
+        genreMorphFolder.add(testRunners, 'runFullOn').name('Morph to Full-On');
+        genreMorphFolder.add(testRunners, 'runProgressive').name('Morph to Progressive');
+        genreMorphFolder.add(testRunners, 'runPsyChill').name('Morph to Psy-Chill');
+        genreMorphFolder.add(testRunners, 'runDarkpsy').name('Morph to Darkpsy');
+        genreMorphFolder.add(testRunners, 'runDarkChill').name('Morph to Dark-Chill');
+        genreMorphFolder.add(testRunners, 'runDub').name('Morph to Dub');
+        
         const aiDebugFolder = gui.addFolder('Debug & Local Server').close();
         aiDebugFolder.add(menuSettings, 'showAiDebugLog').name('Show Debug Log').onChange(value => propsRef.current.onMenuSettingChange('showAiDebugLog', value));
         aiDebugFolder.add(menuSettings, 'showLocalAiPanel').name('Show Local Server').onChange(value => propsRef.current.onMenuSettingChange('showLocalAiPanel', value));
         aiDebugFolder.add(menuSettings, 'showMemoryDebug').name('Show Memory Stats').onChange(value => propsRef.current.onMenuSettingChange('showMemoryDebug', value));
-        
-        const testRunners = { runFullOn: runFullOnTest, runPsyChill: runPsyChillTest };
-        aiDebugFolder.add(testRunners, 'runFullOn').name('Morph to Full-On');
-        aiDebugFolder.add(testRunners, 'runPsyChill').name('Morph to Psy-Chill');
-
 
         // --- System & HNM Folder ---
         systemFolder.add(menuSettings, 'enableSpeechCommands').name('Enable Speech').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableSpeechCommands', value));
@@ -316,16 +318,11 @@ const GuiController: React.FC<GuiControllerProps> = ({
     // Update GUI when state props change from outside
     useEffect(() => {
         if (!guiRef.current) return;
-        // This is a "heavy" way to update, but lil-gui doesn't have a great react-style binding model.
-        // It ensures that external state changes (like from AI) are reflected in the GUI.
         guiRef.current.controllersRecursive().forEach(controller => {
             if (Object.prototype.hasOwnProperty.call(menuSettings, controller.property)) {
                 const liveValue = menuSettings[controller.property as keyof MenuSettings];
-                // lil-gui controllers only handle primitive types.
-                // We check if the value is a primitive and if it has changed.
                 if (typeof liveValue === 'string' || typeof liveValue === 'number' || typeof liveValue === 'boolean') {
                     if (controller.object[controller.property] !== liveValue) {
-                        // setValue is generic, but we've ensured it's a primitive.
                         controller.setValue(liveValue);
                     }
                 }
