@@ -88,6 +88,7 @@ class GeminiService extends BaseAiService {
         const required: string[] = [];
         tool.parameters.forEach(p => {
             properties[p.name] = { type: p.type as Type, description: p.description };
+            if (p.items) properties[p.name].items = { type: (p.items as any).type };
             if (p.required) required.push(p.name);
         });
 
@@ -334,6 +335,17 @@ const fullSoundscapeProperties = (()=>{
 
 const updateSoundParametersTool: LLMTool = { name: "update_sound_parameters", description: "Makes a targeted adjustment to musical parameters.", parameters: Object.values(soundRefinementProperties) };
 const generateMusicSettingsTool: LLMTool = { name: "generate_music_settings", description: "Generates a complete set of musical parameters based on a user's prompt.", parameters: Object.values(fullSoundscapeProperties) };
+const analyzeMusicTool: LLMTool = {
+  name: "summarize_synth_limitations",
+  description: "Analyzes the current sound and provides a summary of the synthesizer engine's limitations for creating the desired genre (e.g., psytrance).",
+  parameters: [{
+      name: 'limitations',
+      type: 'array',
+      description: "A list of strings, where each string is a specific limitation or a suggestion for a missing parameter.",
+      required: true,
+      items: { type: 'string' }
+  }]
+};
 
 export async function generateMusicSettings(prompt: string, model: AIModel, onProgress: (msg: string) => void, settings: Partial<MenuSettings>, context: AiContext): Promise<Partial<MenuSettings>> {
     let systemInstruction: string;
@@ -367,6 +379,38 @@ export async function getSoundRefinement(context: AiContext, model: AIModel, onP
         return null;
     } catch (e) {
          console.error("AI did not suggest a valid refinement.", e);
-         return null;
+         throw e;
+    }
+}
+
+export async function getMusicAnalysis(
+    userGoal: string,
+    model: AIModel,
+    onProgress: (msg: string) => void,
+    settings: Partial<MenuSettings>,
+    context: AiContext
+): Promise<{ limitations: string[] }> {
+    const systemInstruction = `You are a world-class psytrance and electronic music producer. You were given a specific goal: "${userGoal}".
+You have just tried to create this sound using an experimental synthesizer, and the results are in the provided context (audio, visuals, parameters). You have failed to create a professional, engaging track that meets the goal.
+
+Your task is to analyze WHY you failed.
+- Compare the provided context to the user's goal.
+- Identify what is preventing the sound from being professional-grade.
+- Be specific and technical. Instead of "bass is weak", say "Cannot create a punchy bassline because there's no control over sidechain compression from the kick".
+- Instead of "hats sound bad", say "The rhythmic synth lacks a dedicated noise color or filter type parameter, making the hi-hats sound metallic and harsh".
+- Your goal is to provide a list of concrete limitations or missing features that a developer could use to improve the synthesizer.
+You MUST provide your response using the 'summarize_synth_limitations' tool.`;
+
+    const prompt = `Here is the context of my attempt. Now, provide your analysis of the synthesizer's limitations that prevented me from achieving my goal.`;
+
+    try {
+        const result = await callAiAndGetJson(prompt, systemInstruction, model, onProgress, analyzeMusicTool, settings, context);
+        if (!result || !Array.isArray(result.limitations)) {
+            throw new Error("AI returned an invalid format for the analysis.");
+        }
+        return result;
+    } catch (e) {
+        console.error("AI analysis failed.", e);
+        throw new Error(`AI analysis failed. ${(e as Error).message}`);
     }
 }

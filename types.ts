@@ -1,4 +1,29 @@
 
+
+
+export interface TuningScriptStep {
+    duration: number; // in milliseconds
+    params: Partial<MenuSettings>;
+    description?: string;
+}
+
+export interface TuningScript {
+    name: string;
+    description: string;
+    steps: TuningScriptStep[];
+}
+
+export interface InstrumentScripts {
+    [instrumentKey: string]: TuningScript[];
+}
+
+export interface LastRecording {
+    audioBlob: Blob | null;
+    scriptBlob: Blob | null;
+    spectrogramDataUrl: string | null;
+    scriptFileName: string | null;
+}
+
 export interface MenuSettings {
     playerInfluence: number;
     hnmModulationDepth: number;
@@ -33,11 +58,25 @@ export interface MenuSettings {
     bassFilterKeyTrack: number;
     bassFilterDecay: number;
     bassAmpDecay: number;
+    bassDistortion: number;
     bassLevel: number;
     
-    // ACID SYNTH (formerly part of Lead)
+    // LEAD SYNTH (Universal Chameleon)
+    leadPatternDensity: number;
+    leadOctave: number; // 0: Low, 1: Mid, 2: High
+    leadWaveformMix: number; // 0: Sine/FM (Bubble), 1: Supersaw
+    leadFmAmount: number;
+    leadDistortion: number;
+    leadCutoff: number;
+    leadReso: number;
+    leadEnvAmt: number;
+    leadDecay: number;
+    leadAccentAmount: number;
+    leadLevel: number;
+
+    // ACID SYNTH
     acidPatternDensity: number;
-    acidOctave: number; // 0: Low, 1: Mid, 2: High
+    acidOctave: number;
     acidCutoff: number;
     acidReso: number;
     acidEnvAmt: number;
@@ -45,7 +84,7 @@ export interface MenuSettings {
     acidAccentAmount: number;
     acidLevel: number;
 
-    // ATMOS PAD (formerly part of Lead)
+    // ATMOS PAD
     atmosOscType: number; // 0: Saw, 1: FMish
     atmosEvolutionRate: number;
     atmosCutoff: number;
@@ -95,7 +134,7 @@ export interface MenuSettings {
 
     // App & AI Settings
     enableSpeechCommands: boolean;
-    enableTapReset: boolean;
+    enableLongPressToggleUI: boolean;
     enablePsyCoreModulatorMode: boolean;
     enableAiCopilotMode: boolean;
     aiCopilotThought: string;
@@ -113,6 +152,16 @@ export interface MenuSettings {
     hnmWeightDecay: number;
     showLocalAiPanel: boolean;
     localAiStatus: LocalAiStatus;
+    showMemoryDebug: boolean;
+    isUiVisible: boolean;
+    
+    // Instrument Tuning Workbench
+    enableInstrumentTuningMode: boolean;
+    tuningWorkbench_selectedInstrument: string;
+    tuningWorkbench_selectedScript: string;
+    tuningWorkbench_isScriptRunning: boolean;
+    tuningWorkbench_currentStepInfo: string;
+
 
     // --- DEPRECATED - For older GUI compatibility ---
     genreRuleInfluence: number;
@@ -122,18 +171,13 @@ export interface MenuSettings {
     bassFilterLfoRate: number;
     bassFilterLfoDepth: number;
     leadOscType: number;
-    leadOctave: number;
     leadPW: number;
-    leadCutoff: number;
-    leadReso: number;
-    leadEnvAmt: number;
     leadFilterDecay: number;
     leadAmpDecay: number;
     leadPitchLfoRate: number;
     leadPitchLfoDepth: number;
     leadFilterLfoRate: number;
     leadFilterLfoDepth: number;
-    leadLevel: number;
     hatClosedDecay: number;
     hatOpenDecay: number;
     hatHpfCutoff: number;
@@ -145,6 +189,7 @@ export interface MenuSettings {
     noiseFxLfoRate: number;
     noiseFxLfoDepth: number;
     noiseFxLevel: number;
+    acidMode: number;
 }
 
 export interface LocalAiStatus {
@@ -222,7 +267,7 @@ export interface HnmLevelConfig {
 }
 
 export interface HnmLastStepOutput {
-    retrievedVal: any; // tf.Tensor
+    retrievedVal: any; // tf.Tensor & { isDisposed: boolean; dispose: () => void; }
 }
 
 export interface HnmLastStepOutputs {

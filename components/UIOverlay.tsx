@@ -18,7 +18,7 @@ const UIOverlay: React.FC<UIOverlayProps> = ({
     return (
         <>
             {USE_DEBUG && (
-                <div id="debugInfo" className="absolute top-1 left-1 bg-black/50 text-gray-400 font-mono text-[7px] leading-tight p-1 rounded-sm z-10 pointer-events-none max-w-[calc(100%-8px)] whitespace-normal break-words" dangerouslySetInnerHTML={{ __html: debugInfo }}>
+                <div id="debugInfo" className="absolute top-1 left-1 bg-black/50 text-gray-300 font-mono text-xs leading-relaxed p-1 rounded-sm z-10 pointer-events-none max-w-[calc(100%-8px)] whitespace-pre-wrap break-words" dangerouslySetInnerHTML={{ __html: debugInfo }}>
                 </div>
             )}
             

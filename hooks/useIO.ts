@@ -1,4 +1,3 @@
-
 import { useRef, useCallback } from 'react';
 import type { InputState, MenuSettings } from '../types';
 import { MIC_FFT_SIZE, ACCEL_FFT_SIZE, LONG_PRESS_DURATION_MS, RESET_SECOND_TAP_WINDOW_MS, FULLSCREEN_REQUESTED_KEY } from '../constants';
@@ -18,23 +17,25 @@ class GenerativeProcessor extends AudioWorkletProcessor {
 
         this.kickEnv = new Envelope(this.sr); this.kickPitchEnv = new Envelope(this.sr); 
         this.bassAEnv = new Envelope(this.sr); this.bassFEnv = new Envelope(this.sr); 
-        this.acidAEnv = new Envelope(this.sr); this.acidFEnv = new Envelope(this.sr);
+        this.leadAEnv = new Envelope(this.sr); this.leadFEnv = new Envelope(this.sr);
         this.snareNoiseEnv = new Envelope(this.sr); this.snareBodyEnv = new Envelope(this.sr);
         this.riserEnv = new Envelope(this.sr); this.riserPitchEnv = new Envelope(this.sr);
+        this.rhythmEnv = new Envelope(this.sr);
+        this.leadSubPhase = 0;
         
-        this.filters={ bassL:new SVF(),bassR:new SVF(), acidL:new SVF(), acidR:new SVF(), atmosL: new SVF(), atmosR: new SVF(), rhythmL:new SVF(),rhythmR:new SVF(),snareNoiseL:new SVF(),snareNoiseR:new SVF(),snareBodyL:new SVF(),snareBodyR:new SVF(),riserL:new SVF(),riserR:new SVF(), delayL: new SVF(), delayR: new SVF() };
+        this.filters={ bassL:new SVF(),bassR:new SVF(), leadL:new SVF(), leadR:new SVF(), atmosL: new SVF(), atmosR: new SVF(), rhythmL:new SVF(),rhythmR:new SVF(),snareNoiseL:new SVF(),snareNoiseR:new SVF(),snareBodyL:new SVF(),snareBodyR:new SVF(),riserL:new SVF(),riserR:new SVF(), delayL: new SVF(), delayR: new SVF() };
         
         this.rootNote = 41; this.scales = { light: [0, 2, 4, 5, 7, 9, 11], twilight: [0, 1, 3, 5, 7, 8, 10], dark: [0, 1, 4, 5, 8, 10] }; this.activeScale = this.scales.twilight; this.lastMood = 1;
         
         this.targetBassFreq = mtof(this.rootNote - 12); this.currentBassFreq = this.targetBassFreq;
-        this.targetAcidFreq = mtof(this.rootNote); this.currentAcidFreq = this.targetAcidFreq;
+        this.targetLeadFreq = mtof(this.rootNote); this.currentLeadFreq = this.targetLeadFreq;
         
         this.snareBodyPhase1 = 0; this.snareBodyPhase2 = 0;
-        this.rhythmOscPhases = Array(6).fill(0).map((_, i) => (i * 0.137) % 1); // Deterministic start
+        this.rhythmOscPhases = Array(6).fill(0).map((_, i) => (i * 0.137) % 1);
         this.atmosPhase = 0; this.atmosSubPhase = 0;
         
         this.lfoPhase = { atmos: 0, riser: 0 };
-        this.chaoticState = { x: 0.5, y: 0.5, z: 0.5 }; // For logistic maps
+        this.chaoticState = { x: 0.5, y: 0.5, z: 0.5 };
         this.snareFlamTriggerSample = -1;
 
         const maxDelaySeconds=1.2; this.delayBuffer=[new Float32Array(Math.ceil(this.sr*maxDelaySeconds)), new Float32Array(Math.ceil(this.sr*maxDelaySeconds))]; this.delayWritePos=[0,0];
@@ -48,23 +49,9 @@ class GenerativeProcessor extends AudioWorkletProcessor {
     
     initReverb() { const R = {}; R.combDelays = [.0311, .0383, .0427, .0459]; R.apDelays = [.0053, .0121]; R.createBuf = s => new Float32Array(Math.ceil(this.sr * s)); R.combBuffers = R.combDelays.map(l => [R.createBuf(l), R.createBuf(l)]); R.combWritePos = R.combDelays.map(() => [0, 0]); R.combLastSample = R.combDelays.map(() => [0, 0]); R.apBuffers = R.apDelays.map(l => [R.createBuf(l), R.createBuf(l)]); R.apWritePos = R.apDelays.map(() => [0, 0]); R.shimmerBuffer = [R.createBuf(0.5), R.createBuf(0.5)]; R.shimmerWritePos = [0,0]; return R; }
     
-    // Deterministic chaotic map for triggers and note selection
-    logisticMapStep() {
-        const r = 3.57 + (this.params.harmonicComplexity || 0.3) * 0.429; // Range approx [3.57, 3.999]
-        this.chaoticState.x = r * this.chaoticState.x * (1 - this.chaoticState.x);
-        this.chaoticState.y = r * this.chaoticState.y * (1 - this.chaoticState.y);
-        this.chaoticState.z = r * this.chaoticState.z * (1 - this.chaoticState.z);
-    }
-
-    // Deterministic hash-like function
+    logisticMapStep() { const r = 3.57 + (this.params.harmonicComplexity || 0.3) * 0.429; this.chaoticState.x = r * this.chaoticState.x * (1 - this.chaoticState.x); this.chaoticState.y = r * this.chaoticState.y * (1 - this.chaoticState.y); this.chaoticState.z = r * this.chaoticState.z * (1 - this.chaoticState.z); }
     d_hash(n) { return fract(Math.sin(n * 12.9898) * 43758.5); }
-    
-    shouldTrigger(density, seed) {
-        // Use a combination of chaotic state and step counter for deterministic but complex triggers
-        const chaos = (this.chaoticState.x + this.chaoticState.y) / 2;
-        const threshold = 1.0 - density;
-        return (chaos + this.d_hash(this.sixteenthCounter + seed * 1.37)) / 2 > threshold;
-    }
+    shouldTrigger(density, seed) { const chaos = (this.chaoticState.x + this.chaoticState.y) / 2; const threshold = 1.0 - density; return (chaos + this.d_hash(this.sixteenthCounter + seed * 1.37)) / 2 > threshold; }
     
     process(inputs,outputs,parameters){
         const output=outputs[0]; const bufferSize=output[0].length; const srInv=1.0/this.sr; 
@@ -87,80 +74,94 @@ class GenerativeProcessor extends AudioWorkletProcessor {
             for(let i=0;i<bufferSize;++i){
                 const currentPhase=this.masterPhase+i; const currentTime=currentPhase*srInv; const currentBeat=currentTime/secondsPerBeat; const beatPhase=fract(currentBeat); const sixteenthPhase=fract(currentBeat*4.0); const beatTrig=beatPhase<this.lastBeatPhase; const sixteenthTrig=sixteenthPhase<this.lastSixteenthPhase;
                 
-                if (this.snareFlamTriggerSample > 0 && currentPhase >= this.snareFlamTriggerSample) {
-                    this.snareNoiseEnv.trigger(0.001, (this.params.snareNoiseDecay || 0.08) * 0.5, 0, (this.params.snareNoiseDecay || 0.08) * 0.5);
-                    this.snareBodyEnv.trigger(0.002, (this.params.snareBodyDecay || 0.15) * 0.5, 0, (this.params.snareBodyDecay || 0.15) * 0.5);
-                    this.snareFlamTriggerSample = -1; // Reset after triggering
-                }
-
+                if (this.snareFlamTriggerSample > 0 && currentPhase >= this.snareFlamTriggerSample) { this.snareNoiseEnv.trigger(0.001, (this.params.snareNoiseDecay || 0.08) * 0.5, 0, (this.params.snareNoiseDecay || 0.08) * 0.5); this.snareBodyEnv.trigger(0.002, (this.params.snareBodyDecay || 0.15) * 0.5, 0, (this.params.snareBodyDecay || 0.15) * 0.5); this.snareFlamTriggerSample = -1; }
                 if(beatTrig){ this.beatCounter=(this.beatCounter+1)%4; if(this.beatCounter === 0) this.barCounter = (this.barCounter + 1) % 16;}
                 if(sixteenthTrig) { this.sixteenthCounter=(this.sixteenthCounter+1)%16; this.logisticMapStep(); }
 
                 if (sixteenthTrig) {
-                    // KICK
-                    if (this.shouldTrigger(this.params.kickPatternDensity || 0.9, 0.1)) {
-                         if (this.sixteenthCounter % 4 === 0) { this.kickEnv.trigger(0.002,this.params.kickAmpDecay || 0.4,0,this.params.kickAmpDecay||0.4); this.kickPitchEnv.trigger(0.001,this.params.kickPitchDecay||0.05,0,this.params.kickPitchDecay||0.05); }
-                    }
-                    // BASS
-                    if (this.shouldTrigger(this.params.bassPatternDensity || 0.7, 0.2)) {
-                        const noteIdx = Math.floor(this.chaoticState.x * this.activeScale.length * 0.5);
-                        this.targetBassFreq = mtof(this.activeScale[noteIdx] + [0,1,2].map(o=>-24+o*12)[this.params.bassOctave||1]);
-                        this.bassAEnv.trigger(0.005,this.params.bassAmpDecay||0.1,0.9,this.params.bassAmpDecay||0.1); 
-                        this.bassFEnv.trigger(0.005,this.params.bassFilterDecay||0.15,0.9,this.params.bassFilterDecay||0.15);
-                    }
-                    // ACID
-                    if (this.shouldTrigger(this.params.acidPatternDensity || 0.2, 0.3)) {
-                        const noteIdx = Math.floor(this.activeScale.length*0.25+this.chaoticState.y*this.activeScale.length*0.5);
-                        this.targetAcidFreq = mtof(this.activeScale[noteIdx] + [0,1,2].map(o=>-12+o*12)[this.params.acidOctave||1]);
-                        const velocity = 0.5 + this.chaoticState.z * 0.5;
-                        this.acidAEnv.trigger(0.002,this.params.acidDecay||0.3,velocity,this.params.acidDecay||0.3); 
-                        this.acidFEnv.trigger(0.002,this.params.acidDecay||0.3,velocity,this.params.acidDecay||0.3);
-                    }
-                    // SNARE
-                    if (this.shouldTrigger(this.params.snarePatternDensity || 0.9, 0.4) && (this.sixteenthCounter===4||this.sixteenthCounter===12)) {
-                        this.snareNoiseEnv.trigger(0.001,this.params.snareNoiseDecay||0.08,0,this.params.snareNoiseDecay||0.08); this.snareBodyEnv.trigger(0.002,this.params.snareBodyDecay||0.15,0,this.params.snareBodyDecay||0.15);
-                        if (this.chaoticState.z > 1 - (this.params.snareFlamAmount || 0.2)) {
-                            const flamDelaySamples = Math.floor(this.sr * 0.020); // 20ms delay
-                            this.snareFlamTriggerSample = this.masterPhase + i + flamDelaySamples;
-                        }
-                    }
+                    if (this.shouldTrigger(this.params.kickPatternDensity || 0.9, 0.1)) { if (this.sixteenthCounter % 4 === 0) { this.kickEnv.trigger(0.001,this.params.kickAmpDecay || 0.4,0,this.params.kickAmpDecay||0.4); this.kickPitchEnv.trigger(0.001,this.params.kickPitchDecay||0.05,0,this.params.kickPitchDecay||0.05); }}
+                    if (this.shouldTrigger(this.params.bassPatternDensity || 0.7, 0.2)) { const noteIdx = Math.floor(this.chaoticState.x * this.activeScale.length * 0.5); this.targetBassFreq = mtof(this.activeScale[noteIdx] + [0,1,2].map(o=>-24+o*12)[this.params.bassOctave||1]); this.bassAEnv.trigger(0.005,this.params.bassAmpDecay||0.1,0.9,this.params.bassAmpDecay||0.1); this.bassFEnv.trigger(0.005,this.params.bassFilterDecay||0.15,0.9,this.params.bassFilterDecay||0.15); }
+                    if (this.shouldTrigger(this.params.leadPatternDensity || 0.2, 0.3)) { const noteIdx = Math.floor(this.activeScale.length*0.25+this.chaoticState.y*this.activeScale.length*0.5); this.targetLeadFreq = mtof(this.activeScale[noteIdx] + [0,1,2].map(o=>-12+o*12)[this.params.leadOctave||1]); const velocity = 0.5 + this.chaoticState.z * 0.5; this.leadAEnv.trigger(0.002,this.params.leadDecay||0.3,velocity,this.params.leadDecay||0.3); this.leadFEnv.trigger(0.002,this.params.leadDecay||0.3,velocity,this.params.leadDecay||0.3); }
+                    if (this.shouldTrigger(this.params.snarePatternDensity || 0.9, 0.4) && (this.sixteenthCounter===4||this.sixteenthCounter===12)) { this.snareNoiseEnv.trigger(0.001,this.params.snareNoiseDecay||0.08,0,this.params.snareNoiseDecay||0.08); this.snareBodyEnv.trigger(0.002,this.params.snareBodyDecay||0.15,0,this.params.snareBodyDecay||0.15); if (this.chaoticState.z > 1 - (this.params.snareFlamAmount || 0.2)) { this.snareFlamTriggerSample = this.masterPhase + i + Math.floor(this.sr * 0.020); }}
+                    if (this.shouldTrigger(this.params.rhythmPatternDensity || 0.8, 0.5)) { const isOpen = this.sixteenthCounter % 4 === 2; const decay = isOpen ? (this.params.rhythmOpenDecay || 0.25) : (this.params.rhythmClosedDecay || 0.05); this.rhythmEnv.trigger(0.001, decay, 0, decay); }
                 }
                 
-                // SYNTHESIS
-                let kickSig=0; const kEnv=this.kickEnv.process(); if(kEnv>0){ const kPitchEnv=this.kickPitchEnv.process(); const pitch=(this.params.kickTune||0.5)*40+20+(400+(this.params.kickAttack||0.8)*2000)*kPitchEnv; let rawKick=Math.sin(this.masterPhase*srInv*2*Math.PI*pitch); kickSig=softClip(rawKick*(1+(this.params.kickDistortion||0.2)*20))*kEnv; }
-                
-                let bassSig=0; const bAEnv=this.bassAEnv.process(); const bFEnv=this.bassFEnv.process(); if(bAEnv>0){ const glide=Math.pow(0.5,(this.params.bassGlide||0.05)*200*srInv); this.currentBassFreq=(this.currentBassFreq*glide)+(this.targetBassFreq*(1-glide)); let rawBass=0; const subOsc=Math.sin(currentTime*2*Math.PI*this.currentBassFreq*0.5); if((this.params.bassOscType||0)<0.5) rawBass=(fract(currentTime*this.currentBassFreq)*2-1); else rawBass=fract(currentTime*this.currentBassFreq)<(this.params.bassPW||0.5)?1:-1; rawBass=rawBass*(1-(this.params.bassSubOscLevel||0.5))+subOsc*(this.params.bassSubOscLevel||0.5); rawBass*=bAEnv; const filt=ch===0?this.filters.bassL:this.filters.bassR; const keyTrackedCutoff=(this.params.bassCutoff||0.3)+(Math.log2(clamp(this.currentBassFreq, 20, 20000)/40)/6)*(this.params.bassFilterKeyTrack||0.4); filt.setParams(clamp(keyTrackedCutoff+bFEnv*(this.params.bassEnvAmt||0.7),0.01,0.95),(this.params.bassReso||0.6),this.sr,'lp'); bassSig=filt.process(rawBass); }
+                // === KICK ===
+                let kickSig=0; const kEnv=this.kickEnv.process(); if(kEnv>0){ const kPitchEnv=this.kickPitchEnv.process(); const pitch=(this.params.kickTune||0.5)*40+20+(400+(this.params.kickAttack||0.8)*2000)*kPitchEnv; const clickNoise = (this.d_hash(currentTime*90000) * 2 - 1) * kPitchEnv * 0.5; const body = Math.sin(this.masterPhase*srInv*2*Math.PI*pitch); kickSig=softClip((body*0.8 + clickNoise*0.2)*(1+(this.params.kickDistortion||0.0)*5))*kEnv; }
 
-                let acidSig=0; const aAEnv=this.acidAEnv.process(); const aFEnv=this.acidFEnv.process(); if(aAEnv>0){ const glide=Math.pow(0.5,0.1*200*srInv); this.currentAcidFreq=(this.currentAcidFreq*glide)+(this.targetAcidFreq*(1-glide)); const accentMod=1+(this.acidAEnv.level>0.9?(this.params.acidAccentAmount||0.5):0); let rawAcid=(fract(currentTime*this.currentAcidFreq)*2-1); rawAcid*=aAEnv; const filt=ch===0?this.filters.acidL:this.filters.acidR; filt.setParams(clamp((this.params.acidCutoff||0.6)*accentMod+aFEnv*(this.params.acidEnvAmt||0.8),0.01,0.95),clamp((this.params.acidReso||0.7)*accentMod,0,0.98),this.sr,'lp'); acidSig=filt.process(rawAcid); }
+                // === BASS ===
+                let bassSig=0; const bAEnv=this.bassAEnv.process(); const bFEnv=this.bassFEnv.process(); if(bAEnv>0){ const glide=Math.pow(0.5,(this.params.bassGlide||0.05)*200*srInv); this.currentBassFreq=(this.currentBassFreq*glide)+(this.targetBassFreq*(1-glide)); const f=this.currentBassFreq; const saw1=fract(currentTime*f*0.995)*2-1; const saw2=fract(currentTime*f*1.005)*2-1; let rawBass=(saw1+saw2)*0.5; rawBass = softClip(rawBass * (1 + (this.params.bassDistortion || 0) * 4)); rawBass*=bAEnv; const filt=ch===0?this.filters.bassL:this.filters.bassR; const keyTrackedCutoff=(this.params.bassCutoff||0.3)+(Math.log2(clamp(this.currentBassFreq, 20, 20000)/40)/6)*(this.params.bassFilterKeyTrack||0.4); filt.setParams(clamp(keyTrackedCutoff+bFEnv*(this.params.bassEnvAmt||0.7),0.01,0.95),(this.params.bassReso||0.6),this.sr,'lp'); bassSig=filt.process(rawBass); }
+
+                // === LEAD CHAMELEON SYNTH ===
+                let leadSig=0; const lAEnv=this.leadAEnv.process(); const lFEnv=this.leadFEnv.process(); if(lAEnv>0){ const glide=Math.pow(0.5,0.1*200*srInv); this.currentLeadFreq=(this.currentLeadFreq*glide)+(this.targetLeadFreq*(1-glide)); const accentMod=1+(lAEnv.level>0.9?(this.params.leadAccentAmount||0.5):0); let rawLead=0;
                 
+                const waveformMix = this.params.leadWaveformMix || 0; // 0=Bubble, 1=Supersaw
+                
+                // Bubble (Sine/FM) generator
+                const mainFreq = this.currentLeadFreq;
+                this.leadSubPhase += mainFreq * 1.58 * srInv;
+                const modulator = Math.sin(this.leadSubPhase * 2 * Math.PI) * (this.params.leadFmAmount || 0) * 15 * lFEnv;
+                const bubblePart = Math.sin(currentTime * 2 * Math.PI * mainFreq + modulator);
+                
+                // Supersaw generator
+                let supersawPart = 0;
+                const numVoices = 5; 
+                for(let v=0; v<numVoices; v++){ const detune = 1.0 + (v - (numVoices-1)/2) * 0.006; const phase = currentTime * this.currentLeadFreq * detune; supersawPart += (fract(phase)*2-1); }
+                supersawPart = supersawPart / numVoices;
+                
+                rawLead = lerp(bubblePart, supersawPart, waveformMix);
+                rawLead = softClip(rawLead * (1 + (this.params.leadDistortion || 0) * 4));
+                rawLead *= lAEnv;
+
+                const filt=ch===0?this.filters.leadL:this.filters.leadR; filt.setParams(clamp((this.params.leadCutoff||0.6)*accentMod+lFEnv*(this.params.leadEnvAmt||0.8),0.01,0.95),clamp((this.params.leadReso||0.7)*accentMod,0,0.98),this.sr,'lp'); leadSig=filt.process(rawLead); }
+                
+                // === ATMOS PAD ===
                 const lfoUpdateVal=i*srInv; this.lfoPhase.atmos=fract(this.lfoPhase.atmos+lfoUpdateVal*lerp(0.05,0.5,this.params.atmosEvolutionRate||0.3));
                 let atmosSig = 0; const atmosLFO=Math.sin(this.lfoPhase.atmos*2*Math.PI); const atmosFreq=mtof(this.activeScale[1]+(mood-1)*5); this.atmosPhase=fract(this.atmosPhase+atmosFreq*srInv*(1+atmosLFO*(this.params.harmonicComplexity||0.3)*0.1)); this.atmosSubPhase=fract(this.atmosSubPhase+atmosFreq*3*srInv); let rawAtmos=0; if((this.params.atmosOscType||1)<0.5) rawAtmos=this.atmosPhase*2-1; else rawAtmos=Math.sin(this.atmosPhase*2*Math.PI+Math.sin(this.atmosSubPhase*2*Math.PI)*(this.params.harmonicComplexity||0.3)); rawAtmos*=0.2+(this.params.harmonicComplexity||0.3)*0.8; const filt=ch===0?this.filters.atmosL:this.filters.atmosR; filt.setParams(clamp((this.params.atmosCutoff||0.5)+atmosLFO*0.2,0.01,0.95),(this.params.atmosReso||0.4),this.sr,'lp'); atmosSig=filt.process(rawAtmos); const spread=this.params.atmosSpread||0.6; atmosSig=ch===0?atmosSig*(1-spread*0.5):atmosSig*(1+spread*0.5);
 
-                let rhythmSig=0; if(sixteenthTrig&&this.shouldTrigger(this.params.rhythmPatternDensity||0.8,0.5)){const isOpen=this.sixteenthCounter%4===2;const decay=isOpen?(this.params.rhythmOpenDecay||0.25):(this.params.rhythmClosedDecay||0.05);const env=Math.exp(-sixteenthPhase/decay);let noisePart=(this.d_hash(currentTime*90000+ch)*2-1)*(1-(this.params.rhythmMetallicAmount||0.6));let metalPart=0;const baseMetalFreq=4000;for(let j=0;j<6;j++){this.rhythmOscPhases[j]=fract(this.rhythmOscPhases[j]+(baseMetalFreq*(1+j*0.13*(1+(this.params.harmonicComplexity||0.3))))*srInv);metalPart+=fract(this.rhythmOscPhases[j])<0.5?1:-1;}metalPart=metalPart/6*(this.params.rhythmMetallicAmount||0.6);const rhythmFilt=ch===0?this.filters.rhythmL:this.filters.rhythmR;rhythmFilt.setParams(this.params.rhythmHpfCutoff||0.7,0.1,this.sr,'hp');rhythmSig=rhythmFilt.process(noisePart+metalPart)*env;}
+                // === RHYTHM SYNTH ===
+                let rhythmSig = 0;
+                const rEnv = this.rhythmEnv.process();
+                if (rEnv > 0) {
+                    const noisePart = (this.d_hash(currentTime * 90000 + ch) * 2 - 1) * (1 - (this.params.rhythmMetallicAmount || 0.6));
+                    let metalPart = 0;
+                    const baseMetalFreq = 4000;
+                    for (let j = 0; j < 6; j++) {
+                        this.rhythmOscPhases[j] = fract(this.rhythmOscPhases[j] + (baseMetalFreq * (1 + j * 0.13 * (1 + (this.params.harmonicComplexity || 0.3)))) * srInv);
+                        metalPart += (fract(this.rhythmOscPhases[j]) < 0.5 ? 1 : -1);
+                    }
+                    metalPart = metalPart / 6 * (this.params.rhythmMetallicAmount || 0.6);
+                    const rawRhythm = noisePart + metalPart;
+                    const rhythmFilt = ch === 0 ? this.filters.rhythmL : this.filters.rhythmR;
+                    rhythmFilt.setParams(this.params.rhythmHpfCutoff || 0.7, 0.1, this.sr, 'hp');
+                    rhythmSig = rhythmFilt.process(rawRhythm) * rEnv;
+                }
                 
-                let snareSig=0; const sNEnv=this.snareNoiseEnv.process(); const sBEnv=this.snareBodyEnv.process(); if(sNEnv>0||sBEnv>0){const noiseFilt=ch===0?this.filters.snareNoiseL:this.filters.snareNoiseR;noiseFilt.setParams(this.params.snareNoiseCutoff||0.6,0.4,this.sr,'bp');const noisePart=noiseFilt.process((this.d_hash(currentTime*20000+ch)-.5)*sNEnv)*(this.params.snareNoiseLevel||0.8);const bodyFilt=ch===0?this.filters.snareBodyL:this.filters.snareBodyR;bodyFilt.setParams(clamp((this.params.snareBodyTune||0.5)*200/1000,0.05,0.8),0.5,this.sr,'bp');const bodyFreq=((this.params.snareBodyTune||0.5)*150)+80;this.snareBodyPhase1=fract(this.snareBodyPhase1+bodyFreq*srInv);this.snareBodyPhase2=fract(this.snareBodyPhase2+bodyFreq*1.05*srInv);const bodyPart=bodyFilt.process((Math.sin(this.snareBodyPhase1*2*Math.PI)+Math.sin(this.snareBodyPhase2*2*Math.PI))*0.5*sBEnv)*(this.params.snareBodyLevel||0.5);snareSig=(noisePart+bodyPart)*(this.params.snareLevel||0.6);}
-
+                // === SNARE ===
+                let snareSig=0; const sNEnv=this.snareNoiseEnv.process(); const sBEnv=this.snareBodyEnv.process(); if(sNEnv>0||sBEnv>0){const noiseFilt=ch===0?this.filters.snareNoiseL:this.filters.snareNoiseR;noiseFilt.setParams(this.params.snareNoiseCutoff||0.6,0.4,this.sr,'bp');const noisePart=noiseFilt.process((this.d_hash(currentTime*20000+ch)-.5)*sNEnv)*(this.params.snareNoiseLevel||0.8);const bodyFilt=ch===0?this.filters.snareBodyL:this.filters.snareBodyR;bodyFilt.setParams(clamp((this.params.snareBodyTune||0.5)*200/1000,0.05,0.8),0.5,this.sr,'bp');const bodyFreq=((this.params.snareBodyTune||0.5)*150)+180; this.snareBodyPhase1=fract(this.snareBodyPhase1+bodyFreq*srInv); const triBody=Math.asin(Math.sin(this.snareBodyPhase1*2*Math.PI))*(2/Math.PI);const bodyPart=bodyFilt.process(triBody*sBEnv)*(this.params.snareBodyLevel||0.5);snareSig=(noisePart+bodyPart)*(this.params.snareLevel||0.6);}
+                
                 this.lfoPhase.riser=fract(this.lfoPhase.riser+lfoUpdateVal*0.3);
                 let riserSig=0; if(beatTrig&&this.beatCounter===0){const rate=this.params.riserTriggerRate||1; const barPeriod=rate===1?4:(rate===2?8:16);if(rate>0&&this.barCounter%barPeriod===0){this.riserEnv.trigger(this.params.riserAttack||2,this.params.riserDecay||2,0.9,this.params.riserDecay||2);this.riserPitchEnv.trigger(this.params.riserAttack||2,this.params.riserDecay||2,1,this.params.riserDecay||2);}}
                 const riserEnvVal=this.riserEnv.process();if(riserEnvVal>0){const pitchMod=Math.pow(this.riserPitchEnv.process(),2)*(this.params.riserPitchSweep||0.7);const riserFilt=ch===0?this.filters.riserL:this.filters.riserR;const riserLFO=Math.sin(this.lfoPhase.riser*2*Math.PI);riserFilt.setParams(clamp((this.params.riserCutoff||0.2)+riserLFO*0.3,0.01,0.95),(this.params.riserReso||0.5),this.sr,'bp');riserSig=riserFilt.process((this.d_hash(currentTime*40000+ch)*2-1))*riserEnvVal*Math.pow(2,pitchMod*4);}
                 
-                // MIXING & FX
                 const sidechainGain = 1.0 - (Math.pow(kEnv, 0.3) * 0.9);
-                let dryMix = (kickSig*(this.params.kickLevel||0.8)) + ((bassSig*(this.params.bassLevel||0.7)+acidSig*(this.params.acidLevel||0.6)+atmosSig*(this.params.atmosLevel||0.5)+rhythmSig*(this.params.rhythmLevel||0.5)+snareSig)*sidechainGain) + (riserSig*(this.params.riserLevel||0.4));
+                let dryMix = (kickSig*(this.params.kickLevel||0.8)) + ((bassSig*(this.params.bassLevel||0.7)+leadSig*(this.params.leadLevel||0.6)+atmosSig*(this.params.atmosLevel||0.5)+rhythmSig*(this.params.rhythmLevel||0.5)+snareSig)*sidechainGain) + (riserSig*(this.params.riserLevel||0.4));
                 dryMix = softClip(dryMix*0.6);
 
                 const R=this.reverb; const preDelayLen=this.preDelayBuffer[ch].length; const preDelayReadPos=(this.preDelayWritePos[ch]-Math.floor((this.params.reverbPreDelay||0.02)*this.sr)+preDelayLen)%preDelayLen; const preDelayedSample=this.preDelayBuffer[ch][preDelayReadPos]; this.preDelayBuffer[ch][this.preDelayWritePos[ch]]=dryMix; this.preDelayWritePos[ch]=(this.preDelayWritePos[ch]+1)%preDelayLen;
                 const shimmerReadPos=(R.shimmerWritePos[ch]-Math.floor(this.sr*0.2)+R.shimmerBuffer[ch].length)%R.shimmerBuffer[ch].length; const shimmerSample=R.shimmerBuffer[ch][shimmerReadPos]*Math.pow(2,12/12); R.shimmerBuffer[ch][R.shimmerWritePos[ch]]=preDelayedSample; R.shimmerWritePos[ch]=(R.shimmerWritePos[ch]+1)%R.shimmerBuffer[ch].length;
                 let reverbInput=preDelayedSample+shimmerSample*(this.params.reverbShimmer||0.3);
-                let combSum=0; for(let c=0;c<R.combBuffers.length;c++){const cBuf=R.combBuffers[c][ch];const cLen=cBuf.length;const cReadPos=(R.combWritePos[c][ch]-cLen+cLen)%cLen;let cOut=cBuf[cReadPos];const damp=this.params.reverbDamp||0.5;R.combLastSample[c][ch]=cOut*(1-damp*0.5)+R.combLastSample[c][ch]*damp*0.5;cBuf[R.combWritePos[c][ch]]=softClip(reverbInput+R.combLastSample[c][ch]*(this.params.reverbSize||0.7)*0.95);combSum+=cOut;R.combWritePos[c][ch]=(R.combWritePos[c][ch]+1)%cLen;} combSum*=1/R.combBuffers.length;
+                let combSum=0; for(let c=0;c<R.combBuffers.length;c++){const cBuf=R.combBuffers[c][ch];const cLen=cBuf.length;const cReadPos=(R.combWritePos[c][ch]-cLen+cLen)%cLen;let cOut=cBuf[cReadPos];const damp=this.params.reverbDamp||0.5;R.combLastSample[c][ch]=cOut*(1-damp*0.5)+R.combLastSample[c][ch]*damp*0.5;const reverbFeedback=(this.params.reverbSize||0.7)*0.95;cBuf[R.combWritePos[c][ch]]=softClip(reverbInput+R.combLastSample[c][ch]*reverbFeedback);combSum+=cOut;R.combWritePos[c][ch]=(R.combWritePos[c][ch]+1)%cLen;} combSum*=1/R.combBuffers.length;
                 let apInput=combSum,apOut=0;for(let a=0;a<R.apBuffers.length;a++){const aBuf=R.apBuffers[a][ch];const aLen=aBuf.length;const aReadPos=(R.apWritePos[a][ch]-aLen+aLen)%aLen;apOut=aBuf[aReadPos];const apProc=softClip(apInput+apOut*0.5);aBuf[R.apWritePos[a][ch]]=apProc;apInput=apOut-apProc*0.5;R.apWritePos[a][ch]=(R.apWritePos[a][ch]+1)%aLen;}
                 const reverbSignal=apInput;
                 
                 const delayBuf=this.delayBuffer[ch]; const delayLen=delayBuf.length; let delayTimeSec=secondsPerBeat*3/8; const dtm=this.params.delayTimeMode||2; if(dtm===0)delayTimeSec=secondsPerBeat/4;else if(dtm===1)delayTimeSec=secondsPerBeat/2;else if(dtm===3)delayTimeSec=secondsPerBeat;else if(dtm===4)delayTimeSec=secondsPerBeat*2;
                 const delayReadPos=(this.delayWritePos[ch]-Math.floor(delayTimeSec*this.sr)+delayLen)%delayLen; let delayedSample=delayBuf[delayReadPos];
-                const dlyFilt=ch===0?this.filters.delayL:this.filters.delayR; dlyFilt.setParams(this.params.delayFilterCutoff||0.5,0.1,this.sr,'lp'); const feedbackSignal=dlyFilt.process(delayedSample*(this.params.delayFeedback||0.45));
-                const otherChannel=ch===0?1:0; const stereoFeedback=this.delayBuffer[otherChannel][delayReadPos]*(this.params.delayStereo||0.3);
-                delayBuf[this.delayWritePos[ch]]=softClip(dryMix+feedbackSignal+stereoFeedback*(1-(this.params.delayFeedback||0.45))); this.delayWritePos[ch]=(this.delayWritePos[ch]+1)%delayLen;
+                const dlyFilt=ch===0?this.filters.delayL:this.filters.delayR; dlyFilt.setParams(this.params.delayFilterCutoff||0.5,0.1,this.sr,'lp'); 
+                const feedbackSignal = dlyFilt.process(delayedSample * (this.params.delayFeedback||0.45));
+                const stereoFeedback = this.delayBuffer[ch === 0 ? 1 : 0][delayReadPos] * (this.params.delayStereo||0.3);
+                delayBuf[this.delayWritePos[ch]]=softClip(dryMix + feedbackSignal + stereoFeedback);
+                this.delayWritePos[ch]=(this.delayWritePos[ch]+1)%delayLen;
                 
                 const dMix=this.params.delayMix||0.3; const rMix=this.params.reverbMix||0.25;
                 outCh[i]=softClip((dryMix*(1-dMix-rMix)+delayedSample*dMix+reverbSignal*rMix)*0.8);
@@ -178,9 +179,14 @@ interface UseIOProps {
     setSpeechStatus: (status: string) => void;
     showError: (message: string) => void;
     showWarning: (message: string, duration?: number) => void;
+    onToggleUI: () => void;
+    isLongPressUIToggleEnabled: boolean;
 }
 
-export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning }: UseIOProps) => {
+export const useIO = (props: UseIOProps) => {
+    const propsRef = useRef(props);
+    propsRef.current = props;
+
     const inputState = useRef<InputState>({
         touch: { x: 0.5, y: 0.5, active: false, pressure: 0, dx: 0, dy: 0, lastX: 0.5, lastY: 0.5 },
         motion: { alpha: 0, beta: 0, gamma: 0, available: false },
@@ -192,9 +198,10 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
     });
     
     const audioContext = useRef<AudioContext | null>(null);
+    const masterGain = useRef<GainNode | null>(null);
     const audioWorkletNode = useRef<AudioWorkletNode | null>(null);
     const audioCaptureDestination = useRef<MediaStreamAudioDestinationNode | null>(null);
-    const outputAnalyserRef = useRef<AnalyserNode | null>(null);
+    const outputAnalyser = useRef<AnalyserNode | null>(null);
     const speechController = useRef<SpeechRecognitionController | null>(null);
     const visualFeedback = useRef({ active: false, intensity: 0, startTime: 0, duration: 0.1 });
     const canvasRefForIO = useRef<HTMLCanvasElement | null>(null);
@@ -215,9 +222,9 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
             audioContext.current = context;
             await context.resume();
 
-            const masterGain = context.createGain();
-            masterGain.gain.setValueAtTime(1.0, context.currentTime);
-            masterGain.connect(context.destination);
+            masterGain.current = context.createGain();
+            masterGain.current.gain.setValueAtTime(1.0, context.currentTime);
+            masterGain.current.connect(context.destination);
 
             const analyserNode = context.createAnalyser();
             analyserNode.fftSize = MIC_FFT_SIZE;
@@ -233,7 +240,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
             await context.audioWorklet.addModule(workletURL);
             const worklet = new AudioWorkletNode(context, 'generative-processor', { outputChannelCount:[2] });
             worklet.port.onmessage = handleWorkletMessage;
-            worklet.connect(masterGain);
+            worklet.connect(masterGain.current);
             audioWorkletNode.current = worklet;
             
             // Capture destination for recording output
@@ -242,51 +249,80 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
             audioCaptureDestination.current = captureDest;
 
             // Analyser for spectrogram of output
-            const outputAnalyser = context.createAnalyser();
-            outputAnalyser.fftSize = 512;
-            outputAnalyser.smoothingTimeConstant = 0.3;
-            worklet.connect(outputAnalyser);
-            outputAnalyserRef.current = outputAnalyser;
+            const outAnalyser = context.createAnalyser();
+            outAnalyser.fftSize = 512;
+            outAnalyser.smoothingTimeConstant = 0.3;
+            worklet.connect(outAnalyser);
+            outputAnalyser.current = outAnalyser;
 
             URL.revokeObjectURL(workletURL);
             return true;
         } catch (err) {
             console.error("Microphone access denied:", err);
-            showWarning("Mic Disabled/Denied.", 5000);
+            propsRef.current.showWarning("Mic Disabled/Denied.", 5000);
             inputState.current.mic.available = false; 
             return false;
         }
-    }, [showWarning, handleWorkletMessage]);
+    }, [handleWorkletMessage]);
 
-    const initialize = useCallback((canvas: HTMLCanvasElement, onInteraction: () => void) => {
+    const setMasterGain = useCallback((level: number, rampTime: number = 0.05) => {
+        if (masterGain.current && audioContext.current) {
+            masterGain.current.gain.linearRampToValueAtTime(level, audioContext.current.currentTime + rampTime);
+        }
+    }, []);
+
+    const initialize = useCallback((canvas: HTMLCanvasElement) => {
+        const onInteraction = () => {
+             if (audioContext.current?.state === 'suspended') {
+                audioContext.current.resume();
+            }
+        }
         canvasRefForIO.current = canvas;
-        speechController.current = new SpeechRecognitionController(onSpeechCommand, setSpeechStatus, (msg) => showWarning(msg, 6000));
+        speechController.current = new SpeechRecognitionController(
+            (cmd) => propsRef.current.onSpeechCommand(cmd),
+            (status) => propsRef.current.setSpeechStatus(status),
+            (msg) => propsRef.current.showWarning(msg, 6000)
+        );
         
-        const resetGestureState = { pointerDownTime: 0, longPressDetected: false, longPressReleaseTime: 0, resetTimeout: null as ReturnType<typeof setTimeout> | null };
+        const gestureState = { 
+            pointerDownTime: 0, 
+            longPressDetected: false, 
+            longPressReleaseTime: 0, 
+            resetTimeout: null as ReturnType<typeof setTimeout> | null,
+        };
 
         const handlePointerDown = (e: PointerEvent) => {
             onInteraction();
             const now = performance.now();
-            if (resetGestureState.longPressDetected && (now - resetGestureState.longPressReleaseTime < RESET_SECOND_TAP_WINDOW_MS)) {
-                onSpeechCommand('RESET'); // Simulate reset command
+            
+            if (propsRef.current.isLongPressUIToggleEnabled && gestureState.longPressDetected && (now - gestureState.longPressReleaseTime < RESET_SECOND_TAP_WINDOW_MS)) {
+                propsRef.current.onToggleUI();
+                gestureState.longPressDetected = false;
+                if (gestureState.resetTimeout) clearTimeout(gestureState.resetTimeout);
+                propsRef.current.showWarning('', 0);
                 return;
             }
+
             inputState.current.touch.active = true;
-            resetGestureState.pointerDownTime = now;
-            resetGestureState.longPressDetected = false;
+            gestureState.pointerDownTime = now;
+            gestureState.longPressDetected = false;
         };
 
         const handlePointerUp = () => {
              const now = performance.now();
+             const { showWarning: showWarningFn, isLongPressUIToggleEnabled } = propsRef.current;
             if (inputState.current.touch.active) {
-                const pressDuration = now - resetGestureState.pointerDownTime;
-                if (pressDuration > LONG_PRESS_DURATION_MS) {
-                    showWarning(`Long Press: Tap again within ${RESET_SECOND_TAP_WINDOW_MS}ms to Reset.`, RESET_SECOND_TAP_WINDOW_MS + 100);
-                    resetGestureState.longPressDetected = true;
-                    resetGestureState.longPressReleaseTime = now;
-                    resetGestureState.resetTimeout = setTimeout(() => { resetGestureState.longPressDetected = false; showWarning('',0); }, RESET_SECOND_TAP_WINDOW_MS);
-                } else if (resetGestureState.longPressDetected) {
-                    showWarning('',0);
+                const pressDuration = now - gestureState.pointerDownTime;
+                if (isLongPressUIToggleEnabled && pressDuration > LONG_PRESS_DURATION_MS) {
+                    showWarningFn(`Long Press: Tap again to toggle UI.`, RESET_SECOND_TAP_WINDOW_MS + 100);
+                    gestureState.longPressDetected = true;
+                    gestureState.longPressReleaseTime = now;
+                    gestureState.resetTimeout = setTimeout(() => { 
+                        gestureState.longPressDetected = false; 
+                        showWarningFn('',0); 
+                    }, RESET_SECOND_TAP_WINDOW_MS);
+                } else if (gestureState.longPressDetected) {
+                    showWarningFn('',0);
                 }
                 inputState.current.touch.active = false;
             }
@@ -312,7 +348,12 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         // Motion listeners
         const handleMotion = (e: DeviceMotionEvent | DeviceOrientationEvent) => {
             if ('alpha' in e) { inputState.current.motion = { alpha: e.alpha || 0, beta: e.beta || 0, gamma: e.gamma || 0, available: true }; }
-            if ('accelerationIncludingGravity' in e && e.accelerationIncludingGravity) { const acc = e.accelerationIncludingGravity; const mag = Math.sqrt((acc.x||0)**2 + (acc.y||0)**2 + (acc.z||0)**2); inputState.current.accelerometer = {...inputState.current.accelerometer, x:acc.x||0, y:acc.y||0, z:acc.z||0, magnitude:mag, available: true }; inputState.current.accelerometer.history.push(mag); if (inputState.current.accelerometer.history.length > ACCEL_FFT_SIZE) inputState.current.accelerometer.history.shift(); }
+            if ('accelerationIncludingGravity' in e && e.accelerationIncludingGravity) { 
+                const acc = e.accelerationIncludingGravity; 
+                const mag = Math.sqrt((acc.x||0)**2 + (acc.y||0)**2 + (acc.z||0)**2); 
+                inputState.current.accelerometer = {...inputState.current.accelerometer, x:acc.x||0, y:acc.y||0, z:acc.z||0, magnitude:mag, available: true }; 
+                inputState.current.accelerometer.history.push(mag); if (inputState.current.accelerometer.history.length > ACCEL_FFT_SIZE) inputState.current.accelerometer.history.shift(); 
+            }
         };
         const requestMotionPermission = (type: 'deviceorientation' | 'devicemotion') => {
             const E = type === 'deviceorientation' ? DeviceOrientationEvent : DeviceMotionEvent;
@@ -327,7 +368,7 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         requestMotionPermission('deviceorientation');
         requestMotionPermission('devicemotion');
 
-    }, [onSpeechCommand, setSpeechStatus, showError, showWarning]);
+    }, []);
     
     const updateAudioWorklet = useCallback((params: MenuSettings) => {
         if (audioWorkletNode.current) {
@@ -379,8 +420,8 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         };
 
         const captureSpectrogramClip = (): { mimeType: string; data: string; rawData: Uint8Array } | null => {
-            if (!outputAnalyserRef.current) return null;
-            const analyser = outputAnalyserRef.current;
+            if (!outputAnalyser.current) return null;
+            const analyser = outputAnalyser.current;
             const freqData = new Uint8Array(analyser.frequencyBinCount);
             analyser.getByteFrequencyData(freqData);
 
@@ -398,8 +439,8 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
 
             for (let i = 0; i < analyser.frequencyBinCount; i++) {
                 const barHeight = (freqData[i] / 255) * height;
-                const hue = 240 - (freqData[i] / 255) * 240;
-                ctx.fillStyle = `hsl(${hue}, 90%, 50%)`;
+                const hue = 240 - (barHeight / 128) * 120; // from blue to magenta/red
+                ctx.fillStyle = `hsl(${hue}, 90%, 65%)`;
                 ctx.fillRect(i * barWidth, height - barHeight, barWidth, barHeight);
             }
             
@@ -437,5 +478,8 @@ export const useIO = ({ onSpeechCommand, setSpeechStatus, showError, showWarning
         speechController,
         triggerVisualFeedback,
         visualFeedback,
+        audioCaptureDestination,
+        outputAnalyser,
+        setMasterGain,
     };
 };

@@ -1,3 +1,4 @@
+
 import type { Artifact, ActiveArtifactInfo } from '../types';
 
 declare var tf: any;
@@ -53,7 +54,7 @@ export class ArtifactManager {
             return [false, null];
         }
         
-        const stateArr = await stateVectorTensor.squeeze([0, 1]).data();
+        const stateArr = await tf.tidy('createArtifact_squeeze', () => stateVectorTensor.squeeze([0, 1])).data();
         const tags = this.featureExtractor.extractTags(stateArr);
         if (!tags) return [false, null];
 
@@ -91,7 +92,7 @@ export class ArtifactManager {
         const result: ActiveArtifactInfo = { ids: [], stateArrays: [], similarities: [] };
         if (!areEmbeddingsReady || this.artifacts.length === 0 || !stateTensor || stateTensor.isDisposed) return result;
 
-        const stateArr = await stateTensor.squeeze([0, 1]).data();
+        const stateArr = await tf.tidy('findRelevantArtifacts_squeeze', () => stateTensor.squeeze([0, 1])).data();
         const tags = this.featureExtractor.extractTags(stateArr);
         if (!tags) return result;
 

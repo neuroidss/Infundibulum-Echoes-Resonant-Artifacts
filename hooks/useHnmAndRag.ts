@@ -1,3 +1,4 @@
+
 import { useState, useRef, useCallback } from 'react';
 import { pipeline, env } from '@xenova/transformers';
 import { HierarchicalSystemV5_TFJS, memStateDetach, disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
@@ -31,7 +32,6 @@ export const useHnmAndRag = (showLoading: (visible: boolean, message?: string, p
             const hnmConfig = { HNM_VERBOSE };
             hnmSystem.current = new HierarchicalSystemV5_TFJS(HNM_HIERARCHY_LEVEL_CONFIGS, hnmConfig);
             hnmMemoryStates.current = hnmSystem.current.getInitialStates();
-            hnmLastStepOutputs.current = {};
             currentResonantState.current = tf.keep(tf.zeros([1, 1, STATE_VECTOR_SIZE]));
         }
 
@@ -58,37 +58,43 @@ export const useHnmAndRag = (showLoading: (visible: boolean, message?: string, p
     }, [showLoading]);
 
     const projectArtifactsToExternalSignal = useCallback((activeArtifacts: ActiveArtifactInfo, dim: number): any => {
-        return tf.tidy(() => {
-            if (!activeArtifacts || activeArtifacts.ids.length === 0) {
-                return tf.keep(tf.zeros([1, 1, dim]));
-            }
-            const blendedSignal = tf.tidy(() => {
-                let accumulatedSignal = tf.zeros([dim]);
-                let totalSim = 0;
-                for (let i = 0; i < activeArtifacts.ids.length; i++) {
-                    const stateVec = activeArtifacts.stateArrays[i];
-                    const similarity = activeArtifacts.similarities[i];
-                    if (stateVec.length >= dim) {
-                        const stateTensor = tf.tensor1d(stateVec.slice(0, dim));
-                        accumulatedSignal = accumulatedSignal.add(stateTensor.mul(similarity));
-                        totalSim += similarity;
-                        stateTensor.dispose();
-                    }
-                }
-                if (totalSim > 1e-6) {
-                    return accumulatedSignal.div(totalSim);
-                }
-                return accumulatedSignal;
-            });
+        // This function is called from within a tf.tidy block in the main loop,
+        // so all tensors created here will be automatically cleaned up.
+        if (!activeArtifacts || activeArtifacts.stateArrays.length === 0) {
+            return tf.zeros([1, 1, dim]);
+        }
     
-            const emptyState = tf.zeros([dim]);
-            const finalSignal = tensorLerp(emptyState, blendedSignal, Math.min(1.0, activeArtifacts.ids.length / REASONABLE_SHADER_ARTIFACT_CAP));
-            
-            emptyState.dispose();
-            blendedSignal.dispose();
+        const stateArrays = activeArtifacts.stateArrays.map(arr => arr.slice(0, dim));
+        const similarities = activeArtifacts.similarities;
     
-            return tf.keep(finalSignal.reshape([1, 1, dim]));
-        });
+        if (stateArrays.length === 0) {
+            return tf.zeros([1, 1, dim]);
+        }
+        
+        // Create one big tensor for all artifact states
+        const artifactsTensor = tf.tensor2d(stateArrays); // Shape: [num_artifacts, dim]
+        // Create one tensor for all similarities
+        const similaritiesTensor = tf.tensor1d(similarities).reshape([-1, 1]); // Shape: [num_artifacts, 1]
+    
+        // Multiply them together (broadcasting)
+        const scaledArtifacts = artifactsTensor.mul(similaritiesTensor); // Shape: [num_artifacts, dim]
+    
+        // Sum them along the artifact axis
+        const summedSignal = scaledArtifacts.sum(0); // Shape: [dim]
+    
+        const totalSim = similarities.reduce((a, b) => a + b, 0);
+    
+        let blendedSignal;
+        if (totalSim > 1e-6) {
+            blendedSignal = summedSignal.div(totalSim);
+        } else {
+            blendedSignal = summedSignal;
+        }
+        
+        const emptyState = tf.zeros([dim]);
+        const finalSignal = tensorLerp(emptyState, blendedSignal, Math.min(1.0, activeArtifacts.ids.length / REASONABLE_SHADER_ARTIFACT_CAP));
+        
+        return finalSignal.reshape([1, 1, dim]);
     }, []);
 
     const trainOnArtifacts = useCallback(async (learningRate: number, weightDecay: number) => {
@@ -103,7 +109,7 @@ export const useHnmAndRag = (showLoading: (visible: boolean, message?: string, p
 
         for (let step = 0; step < N_SUPERVISION_STEPS; step++) {
             showLoading(true, "Training HNM...", `Supervision Step ${step + 1} / ${N_SUPERVISION_STEPS}`);
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await new Promise(resolve => setTimeout(() => resolve(undefined), 10));
 
             const inputArtifact = artifacts[Math.floor(Math.random() * artifacts.length)];
             const targetArtifact = artifacts[Math.floor(Math.random() * artifacts.length)];
@@ -137,6 +143,77 @@ export const useHnmAndRag = (showLoading: (visible: boolean, message?: string, p
 
         hnmSystem.current.setLearningParameters(0, 0); // Disable learning after training
     }, [showLoading]);
+
+    const getMemoryUsageInfo = useCallback(() => {
+        let hnmWeightsBytes = 0;
+        if (hnmMemoryStates.current && hnmMemoryStates.current.length > 0) {
+            for (const state of hnmMemoryStates.current) {
+                if (!state || !state.layerWeights) continue;
+                for (const key in state.layerWeights) {
+                    if (Array.isArray(state.layerWeights[key])) {
+                        for (const tensor of state.layerWeights[key]) {
+                            if (tensor && !tensor.isDisposed) {
+                                hnmWeightsBytes += tensor.size * 4; // Assume float32
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    
+        const resonantStateBytes = (currentResonantState.current && !currentResonantState.current.isDisposed)
+            ? currentResonantState.current.size * 4
+            : 0;
+        
+        let artifactBytes = 0;
+        if (artifactManager.current) {
+            for (const artifact of artifactManager.current.artifacts) {
+                // embedding is Float32Array, stateVector is number[] treated as float32
+                artifactBytes += (artifact.embedding.length + artifact.stateVector.length) * 4;
+            }
+        }
+    
+        return {
+            totalUsefulBytes: hnmWeightsBytes + resonantStateBytes + artifactBytes,
+        };
+    }, []);
+
+    const getTrackedTensorCount = useCallback(() => {
+        let count = 0;
+        
+        // Resonant state
+        if (currentResonantState.current && !currentResonantState.current.isDisposed) {
+            count++;
+        }
+    
+        // HNM Weights
+        if (hnmMemoryStates.current && hnmMemoryStates.current.length > 0) {
+            for (const state of hnmMemoryStates.current) {
+                if (!state || !state.layerWeights) continue;
+                for (const key in state.layerWeights) {
+                    if (Array.isArray(state.layerWeights[key])) {
+                        for (const tensor of state.layerWeights[key]) {
+                            if (tensor && !tensor.isDisposed) {
+                                count++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    
+        // HNM Last step outputs
+        if (hnmLastStepOutputs.current) {
+            for(const key in hnmLastStepOutputs.current) {
+                const output = hnmLastStepOutputs.current[key];
+                if (output?.retrievedVal && !output.retrievedVal.isDisposed) {
+                    count++;
+                }
+            }
+        }
+        
+        return count;
+    }, []);
 
     const reset = useCallback(() => {
         hnmMemoryStates.current.forEach(disposeMemStateWeights);
@@ -176,5 +253,7 @@ export const useHnmAndRag = (showLoading: (visible: boolean, message?: string, p
         lastL0Anomaly,
         activeArtifactInfo,
         projectArtifactsToExternalSignal,
+        getMemoryUsageInfo,
+        getTrackedTensorCount,
     };
 };

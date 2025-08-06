@@ -1,14 +1,16 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 
 interface AiMuseProps {
   isGenerating: boolean;
   onGenerate: (prompt: string) => void;
+  onEngineerAndAnalyze: (prompt: string) => void;
   isDisabled: boolean;
   isCopilotActive: boolean;
   isPsyCoreModulatorActive: boolean;
 }
 
-const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, isCopilotActive, isPsyCoreModulatorActive }) => {
+const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, onEngineerAndAnalyze, isDisabled, isCopilotActive, isPsyCoreModulatorActive }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,6 +43,13 @@ const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, i
     }
   };
   
+  const handleEngineer = () => {
+    if (prompt.trim() && !isGenerating && !trulyDisabled) {
+      onEngineerAndAnalyze(prompt);
+      setIsOpen(false);
+    }
+  };
+
   const getPlaceholderText = () => {
       if (isDisabled) return "AI is not configured";
       if (isCopilotActive) return "AI Co-pilot is active";
@@ -73,9 +82,23 @@ const AiMuse: React.FC<AiMuseProps> = ({ isGenerating, onGenerate, isDisabled, i
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={getPlaceholderText()}
               disabled={trulyDisabled || isGenerating}
-              className="w-64 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+              className="w-56 bg-transparent text-white placeholder-gray-400 focus:outline-none"
               aria-label="AI Muse Prompt"
             />
+             <button
+              type="button"
+              onClick={handleEngineer}
+              disabled={trulyDisabled || isGenerating || !prompt.trim()}
+              className="p-2 text-gray-400 rounded-md hover:bg-purple-900 hover:text-white disabled:text-gray-600 disabled:cursor-not-allowed"
+              aria-label="Engineer and Analyze sound"
+              title="Engineer sound and report limitations"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path fillRule="evenodd" d="M11.013 2.513a.75.75 0 0 1 .494.89l-1.393 4.18a.75.75 0 0 1-1.4-.467l1.393-4.18a.75.75 0 0 1 .906-.423ZM14.25 5.25a.75.75 0 0 1 .75.75v.01a6.756 6.756 0 0 1-3.136 5.828.75.75 0 0 1-1.229-.638V9.75a.75.75 0 0 1 .75-.75h2.865ZM12 7.5a.75.75 0 0 0-1.5 0v1.5a.75.75 0 0 0 1.5 0V7.5Z" clipRule="evenodd" />
+                <path d="M4.33 11.332a.75.75 0 0 1-.295 1.01l-1.859.93a.75.75 0 0 1-.941-.493l-.75-1.5a.75.75 0 0 1 .494-.94l1.858-.93a.75.75 0 0 1 .94.493l.75 1.5a.75.75 0 0 1-.238.96ZM16.5 9.75a.75.75 0 0 0-1.096-.649l-3.32 1.66a.75.75 0 0 0 .648 1.096l3.32-1.66a.75.75 0 0 0 .448-.447Z" />
+                <path d="M5.5 15.25a4.5 4.5 0 0 0 6.673 3.395.75.75 0 0 0-.494-1.418 3 3 0 0 1-4.449-2.262.75.75 0 0 0-1.418-.494A4.5 4.5 0 0 0 5.5 15.25Z" />
+              </svg>
+            </button>
             <button 
               type="submit" 
               disabled={isGenerating || trulyDisabled || !prompt.trim()}

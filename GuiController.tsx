@@ -60,7 +60,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
 
         const systemFolder = gui.addFolder('System & HNM').open();
         systemFolder.add(menuSettings, 'enableSpeechCommands').name('Enable Speech').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableSpeechCommands', value));
-        systemFolder.add(menuSettings, 'enableTapReset').name('Enable Tap Reset').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableTapReset', value));
+        systemFolder.add(menuSettings, 'enableLongPressToggleUI').name('Long-press UI Toggle').onChange((value: boolean) => propsRef.current.onMenuSettingChange('enableLongPressToggleUI', value));
         systemFolder.add({ reset: () => propsRef.current.resetMenuToDefaults() }, 'reset').name('Reset Menu Defaults');
         systemFolder.add({ reset: () => propsRef.current.resetHnmRag() }, 'reset').name('Reset HNM/RAG State');
         systemFolder.add(menuSettings, 'playerInfluence', 0, 1, 0.01).name('Bio-Feedback Influence').onChange((v:number) => propsRef.current.onMenuSettingChange('playerInfluence', v));

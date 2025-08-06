@@ -22,6 +22,8 @@ This application offers three distinct modes for interacting with the AI, each p
 
 *   **Psy-Core Modulator:** The deepest level of interaction. This mode creates a full bio-feedback loop. It continuously analyzes your body's motion and the sonic environment to synergistically evolve the audio-visuals. If you dance, the music intensifies. If you are still, it weaves intricate, ambient textures. It's designed to amplify your current state for a profound, immersive experience.
 
+> **Note for Mobile Users:** The UI can be hidden by pressing 'H' on a keyboard. To restore it on a touch device, **long-press the screen for two seconds, release, then tap again**. This gesture can be disabled in the "System & HNM" menu.
+
 ## Under the Hood: The Hybrid AI Brain
 
 The application's core is a sophisticated, multi-layered AI system that runs entirely on your device, ensuring your data remains private.
@@ -37,13 +39,6 @@ The application's core is a sophisticated, multi-layered AI system that runs ent
 3.  **Embeddings & RAG (The Associative Memory):**
     *   **Function:** The system's long-term, semantic memory. When you save a "Resonant Artifact" (a snapshot of a moment you like), its sonic essence is converted into a numerical vector (an embedding).
     *   **Role:** This forms a Retrieval-Augmented Generation (RAG) system. The HNM can "recall" these past moments, allowing past creative choices to influence the present, creating thematic coherence and a sense of journey.
-
-## Tech Stack
-
-*   **AI:** Google Gemini API, Ollama, OpenAI-compatible APIs (for local models like Gemma), HuggingFace Transformers.js, TensorFlow.js
-*   **Frontend:** React, TypeScript, Three.js (for WebGL rendering)
-*   **Audio:** Web Audio API, AudioWorklet
-*   **Backend (Optional, for Local AI Management):** Node.js, Express, Python
 
 ## Running Locally
 

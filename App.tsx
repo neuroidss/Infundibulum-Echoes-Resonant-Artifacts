@@ -7,6 +7,7 @@ import AiMuse from './components/AiMuse';
 import AiConfigModal from './components/AiConfigModal';
 import AiDebugLog from './components/AiDebugLog';
 import AiCopilotPanel from './components/AiCopilotPanel';
+import TuningWorkbenchModal from './components/TuningWorkbenchModal';
 import type { LocalAiStatus } from './types';
 
 
@@ -166,6 +167,7 @@ const App: React.FC = () => {
     resetMenuSettingsToDefault,
     resetHnmRag,
     handleAiGenerate,
+    handleEngineerAndAnalyze,
     isAiConfigModalVisible,
     toggleAiConfigModal,
     handleAiConfigSubmit,
@@ -177,71 +179,99 @@ const App: React.FC = () => {
     handleTestLocalAi,
     isInstallingLocalAiScript,
     isServerConnected,
+    handleRunTuningScript,
+    handleRecordAndDownload,
+    stopTuningScript,
+    outputAnalyser,
+    lastRecording,
   } = useInfundibulum(canvasRef);
+  
+  const isTuningMode = menuSettings.enableInstrumentTuningMode;
 
   return (
     <div className="relative h-full w-full bg-black">
       <canvas ref={canvasRef} className="absolute top-0 left-0 w-full h-full block" />
-      <UIOverlay
-        debugInfo={debugInfo}
-        warningInfo={warningInfo}
-        loadingInfo={loadingInfo}
-        speechStatus={speechStatus}
-      />
-      {isInitialized && (
+      
+      {menuSettings.isUiVisible && !isTuningMode && (
         <>
-          <GuiController
-            menuSettings={menuSettings}
-            onMenuSettingChange={handleMenuSettingChange}
-            resetMenuToDefaults={resetMenuSettingsToDefault}
-            resetHnmRag={resetHnmRag}
-            isDisabled={isAiDisabled}
-            toggleAiConfigModal={toggleAiConfigModal}
-            handleTrainOnArtifacts={handleTrainOnArtifacts}
+          <UIOverlay
+            debugInfo={debugInfo}
+            warningInfo={warningInfo}
+            loadingInfo={loadingInfo}
+            speechStatus={speechStatus}
           />
-          {menuSettings.showAiMuse && !menuSettings.enableAiCopilotMode && (
-            <AiMuse
-              isGenerating={loadingInfo.visible && loadingInfo.message.startsWith('AI Muse')}
-              onGenerate={handleAiGenerate}
-              isDisabled={isAiDisabled}
-              isCopilotActive={menuSettings.enableAiCopilotMode}
-              isPsyCoreModulatorActive={menuSettings.enablePsyCoreModulatorMode}
-            />
-          )}
-          {menuSettings.enableAiCopilotMode && (
-            <AiCopilotPanel
-              thought={menuSettings.aiCopilotThought}
-              isThinking={loadingInfo.visible && loadingInfo.message.startsWith('Co-pilot')}
-              onRefine={handleCopilotRefine}
-              isDisabled={isAiDisabled}
-            />
-          )}
-          <AiConfigModal
-            isVisible={isAiConfigModalVisible}
-            onClose={() => toggleAiConfigModal(false)}
-            onSubmit={handleAiConfigSubmit}
-            currentSettings={menuSettings}
-          />
-          {menuSettings.showAiDebugLog && (
-              <AiDebugLog 
-                log={menuSettings.aiDebugLog}
-                onClose={() => handleMenuSettingChange('showAiDebugLog', false)}
+          {isInitialized && (
+            <>
+              <GuiController
+                menuSettings={menuSettings}
+                onMenuSettingChange={handleMenuSettingChange}
+                resetMenuToDefaults={resetMenuSettingsToDefault}
+                resetHnmRag={resetHnmRag}
+                isDisabled={isAiDisabled}
+                toggleAiConfigModal={() => toggleAiConfigModal(true)}
+                handleTrainOnArtifacts={handleTrainOnArtifacts}
+                isUiVisible={menuSettings.isUiVisible}
               />
-          )}
-          {menuSettings.showLocalAiPanel && (
-            <LocalAiPanel 
-              status={menuSettings.localAiStatus}
-              isServerConnected={isServerConnected}
-              onInstall={handleInstallGemmaScript}
-              onStart={handleStartLocalAiServer}
-              onStop={handleStopLocalAiServer}
-              onTest={handleTestLocalAi}
-              onClose={() => handleMenuSettingChange('showLocalAiPanel', false)}
-              isInstalling={isInstallingLocalAiScript}
-            />
+              {menuSettings.showAiMuse && !menuSettings.enableAiCopilotMode && (
+                <AiMuse
+                  isGenerating={loadingInfo.visible && (loadingInfo.message.startsWith('AI Muse') || loadingInfo.message.startsWith('AI Engineer'))}
+                  onGenerate={handleAiGenerate}
+                  onEngineerAndAnalyze={handleEngineerAndAnalyze}
+                  isDisabled={isAiDisabled}
+                  isCopilotActive={menuSettings.enableAiCopilotMode}
+                  isPsyCoreModulatorActive={menuSettings.enablePsyCoreModulatorMode}
+                />
+              )}
+              {menuSettings.enableAiCopilotMode && (
+                <AiCopilotPanel
+                  thought={menuSettings.aiCopilotThought}
+                  isThinking={loadingInfo.visible && loadingInfo.message.startsWith('Co-pilot')}
+                  onRefine={handleCopilotRefine}
+                  isDisabled={isAiDisabled}
+                />
+              )}
+              
+              {menuSettings.showAiDebugLog && (
+                  <AiDebugLog 
+                    log={menuSettings.aiDebugLog}
+                    onClose={() => handleMenuSettingChange('showAiDebugLog', false)}
+                  />
+              )}
+              {menuSettings.showLocalAiPanel && (
+                <LocalAiPanel 
+                  status={menuSettings.localAiStatus}
+                  isServerConnected={isServerConnected}
+                  onInstall={handleInstallGemmaScript}
+                  onStart={handleStartLocalAiServer}
+                  onStop={handleStopLocalAiServer}
+                  onTest={handleTestLocalAi}
+                  onClose={() => handleMenuSettingChange('showLocalAiPanel', false)}
+                  isInstalling={isInstallingLocalAiScript}
+                />
+              )}
+            </>
           )}
         </>
       )}
+
+      {/* Modals are handled separately so their visibility logic is contained */}
+      <AiConfigModal
+        isVisible={isAiConfigModalVisible && menuSettings.isUiVisible}
+        onClose={() => toggleAiConfigModal(false)}
+        onSubmit={handleAiConfigSubmit}
+        currentSettings={menuSettings}
+      />
+       <TuningWorkbenchModal
+        isVisible={isTuningMode && menuSettings.isUiVisible}
+        onClose={() => handleMenuSettingChange('enableInstrumentTuningMode', false)}
+        menuSettings={menuSettings}
+        onMenuSettingChange={handleMenuSettingChange}
+        onRun={handleRunTuningScript}
+        onRecord={handleRecordAndDownload}
+        onStop={stopTuningScript}
+        analyserNode={outputAnalyser.current}
+        lastRecording={lastRecording}
+      />
     </div>
   );
 };

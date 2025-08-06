@@ -1,5 +1,7 @@
 
-import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider } from './types';
+
+
+import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider, InstrumentScripts } from './types';
 
 export const VERSION = "1.0.0-PsyTek";
 export const USE_DEBUG = true;
@@ -45,8 +47,134 @@ export const HNM_HIERARCHY_LEVEL_CONFIGS: HnmLevelConfig[] = [
 
 export const HNM_POLICY_HEAD_INPUT_LEVEL_NAME = "L1_ContextualResonance";
 
+export const TUNING_MODE_PRESET: Partial<MenuSettings> = {
+    masterBPM: 135,
+    energyLevel: 0.5,
+    harmonicComplexity: 0.1,
+    mood: 2, // Dark
+    // Set other instruments to silent by default in tuning mode
+    kickPatternDensity: 0.0, kickLevel: 0.0,
+    bassPatternDensity: 0.0, bassLevel: 0.0,
+    leadPatternDensity: 0.0, leadLevel: 0.0,
+    atmosLevel: 0.0,
+    rhythmPatternDensity: 0.0, rhythmLevel: 0.0,
+    snarePatternDensity: 0.0, snareLevel: 0.0,
+    riserTriggerRate: 0, riserLevel: 0.0,
+    delayMix: 0, reverbMix: 0,
+};
+
+export const TUNING_SCRIPTS: InstrumentScripts = {
+    "Master Bus": [{
+        name: "FX Sweep (Kick Source)",
+        description: "Activates a kick drum and sweeps Delay and Reverb to test the master bus.",
+        steps: [
+            { duration: 2000, params: { kickPatternDensity: 1.0, kickLevel: 0.8, kickAmpDecay: 0.3, delayMix: 0.5, delayFeedback: 0.5, delayFilterCutoff: 0.8, reverbMix: 0.0 }, description: "Delay: Mid Feedback" },
+            { duration: 2000, params: { delayFeedback: 0.9, delayStereo: 0.8 }, description: "Delay: High Feedback, Wide" },
+            { duration: 2000, params: { delayFilterCutoff: 0.2 }, description: "Delay: Filtered" },
+            { duration: 3000, params: { delayMix: 0.0, reverbMix: 0.5, reverbSize: 0.5, reverbDamp: 0.5, reverbShimmer: 0.0 }, description: "Reverb: Mid Size" },
+            { duration: 3000, params: { reverbSize: 0.95, reverbDamp: 0.1 }, description: "Reverb: Large Size" },
+            { duration: 3000, params: { reverbShimmer: 0.9 }, description: "Reverb: High Shimmer" },
+        ]
+    }],
+    "System": [{
+        name: "Orchestra Test",
+        description: "Enables all instruments with default patterns to test the full mix.",
+        steps: [
+            { 
+                duration: 30000, // run for 30 seconds
+                params: {
+                    kickPatternDensity: 1.0, kickLevel: 0.9,
+                    bassPatternDensity: 0.9, bassLevel: 0.8,
+                    leadPatternDensity: 0.9, leadLevel: 0.65,
+                    atmosLevel: 0.4,
+                    rhythmPatternDensity: 0.8, rhythmLevel: 0.6,
+                    snarePatternDensity: 1.0, snareLevel: 0.7,
+                    riserTriggerRate: 0, riserLevel: 0.4,
+                    delayMix: 0.4, reverbMix: 0.5,
+                },
+                description: "All instruments active"
+            }
+        ]
+    }],
+    "Kick": [{
+        name: "Tune, Decay & Distortion Test",
+        description: "Sweeps tune and decay, then introduces distortion to test the clipper.",
+        steps: [
+            { duration: 1500, params: { kickTune: 0.1, kickAmpDecay: 0.2, kickDistortion: 0.0 }, description: "Low Tune, Short" },
+            { duration: 1500, params: { kickTune: 0.9, kickAmpDecay: 0.2, kickDistortion: 0.0 }, description: "High Tune, Short" },
+            { duration: 1500, params: { kickTune: 0.1, kickAmpDecay: 0.8, kickDistortion: 0.0 }, description: "Low Tune, Long" },
+            { duration: 1500, params: { kickTune: 0.9, kickAmpDecay: 0.8, kickDistortion: 0.0 }, description: "High Tune, Long" },
+            { duration: 1500, params: { kickTune: 0.5, kickAmpDecay: 0.5, kickDistortion: 0.5 }, description: "Mid Tune, Mid Decay, 50% Dist" },
+            { duration: 1500, params: { kickTune: 0.5, kickAmpDecay: 0.5, kickDistortion: 1.0 }, description: "Mid Tune, Mid Decay, 100% Dist" },
+        ]
+    }],
+    "Bass": [{
+        name: "Filter, Glide & Octave Sweep",
+        description: "Tests filter, glide, and octave switching to check the full range of the bass synth.",
+        steps: [
+            { duration: 2000, params: { bassCutoff: 0.2, bassReso: 0.1, bassGlide: 0, bassOctave: 1 }, description: "Sub-1 Octave, Low Cut, No Glide" },
+            { duration: 2000, params: { bassCutoff: 0.8, bassReso: 0.1, bassGlide: 0, bassOctave: 1 }, description: "Sub-1 Octave, High Cut, No Glide" },
+            { duration: 2000, params: { bassCutoff: 0.2, bassReso: 0.9, bassGlide: 0, bassOctave: 1 }, description: "Sub-1 Octave, Low Cut, High Reso" },
+            { duration: 2000, params: { bassCutoff: 0.4, bassReso: 0.7, bassGlide: 0.15, bassOctave: 1 }, description: "Sub-1 Octave, Mid Cut, With Glide" },
+            { duration: 2000, params: { bassCutoff: 0.4, bassReso: 0.7, bassGlide: 0.05, bassOctave: 0 }, description: "Sub-2 Octave, Mid Cut" },
+        ]
+    }],
+    "Lead": [{
+        name: "Accent, Decay & Reso Test",
+        description: "Tests the critical interaction between accent, decay, and resonance.",
+        steps: [
+            { duration: 2000, params: { leadDecay: 0.1, leadAccentAmount: 0.0, leadReso: 0.5 }, description: "Short, No Accent, Mid Reso" },
+            { duration: 2000, params: { leadDecay: 0.1, leadAccentAmount: 1.0, leadReso: 0.5 }, description: "Short, Full Accent, Mid Reso" },
+            { duration: 2000, params: { leadDecay: 0.8, leadAccentAmount: 0.0, leadReso: 0.9 }, description: "Long, No Accent, High Reso" },
+            { duration: 2000, params: { leadDecay: 0.8, leadAccentAmount: 1.0, leadReso: 0.9 }, description: "Long, Full Accent, High Reso" },
+        ]
+    }],
+    "Snare": [{
+        name: "Noise, Body & Filter Mix",
+        description: "Blends Noise/Body levels and sweeps noise filter to test snare character.",
+        steps: [
+            { duration: 1500, params: { snareNoiseLevel: 1.0, snareBodyLevel: 0.0, snareNoiseCutoff: 0.5 }, description: "Noise Only" },
+            { duration: 1500, params: { snareNoiseLevel: 0.0, snareBodyLevel: 1.0 }, description: "Body Only" },
+            { duration: 1500, params: { snareNoiseLevel: 0.7, snareBodyLevel: 0.7, snareNoiseCutoff: 0.2 }, description: "Mix, Low Cutoff" },
+            { duration: 1500, params: { snareNoiseLevel: 0.7, snareBodyLevel: 0.7, snareNoiseCutoff: 0.9 }, description: "Mix, High Cutoff" },
+            { duration: 1500, params: { snareNoiseDecay: 0.02, snareBodyDecay: 0.05}, description: "Tight Decay"},
+            { duration: 1500, params: { snareNoiseDecay: 0.25, snareBodyDecay: 0.4}, description: "Loose Decay"},
+        ]
+    }],
+    "Rhythm": [{
+        name: "Decay, HPF & Metallic Test",
+        description: "Tests open/closed decay times and the metallic character.",
+        steps: [
+            { duration: 2000, params: { rhythmClosedDecay: 0.02, rhythmOpenDecay: 0.1, rhythmHpfCutoff: 0.5, rhythmMetallicAmount: 0.1 }, description: "Tight, Low Metallic" },
+            { duration: 2000, params: { rhythmClosedDecay: 0.1, rhythmOpenDecay: 0.4, rhythmHpfCutoff: 0.5, rhythmMetallicAmount: 0.1 }, description: "Loose, Low Metallic" },
+            { duration: 2000, params: { rhythmHpfCutoff: 0.2, rhythmMetallicAmount: 0.9 }, description: "Loose, High Metallic, Low HPF" },
+            { duration: 2000, params: { rhythmHpfCutoff: 0.9, rhythmMetallicAmount: 0.9 }, description: "Loose, High Metallic, High HPF" },
+        ]
+    }],
+    "Atmos": [{
+        name: "Evolution & Spread Test",
+        description: "Tests the pad's evolution rate and stereo spread.",
+        steps: [
+            { duration: 3000, params: { atmosEvolutionRate: 0.1, atmosCutoff: 0.4, atmosSpread: 0.1, atmosOscType: 0 }, description: "Saw, Slow Evo, Narrow" },
+            { duration: 3000, params: { atmosEvolutionRate: 0.9, atmosCutoff: 0.4, atmosSpread: 0.1, atmosOscType: 0 }, description: "Saw, Fast Evo, Narrow" },
+            { duration: 3000, params: { atmosEvolutionRate: 0.5, atmosCutoff: 0.7, atmosSpread: 0.9, atmosOscType: 1 }, description: "FMish, Mid Evo, Wide" },
+            { duration: 3000, params: { atmosEvolutionRate: 0.9, atmosCutoff: 0.7, atmosSpread: 0.9, atmosOscType: 1 }, description: "FMish, Fast Evo, Wide" },
+        ]
+    }],
+    "Riser": [{
+        name: "Tension & Sweep Test",
+        description: "Tests the riser's attack/decay time and pitch sweep.",
+        steps: [
+            { duration: 5000, params: { riserAttack: 4, riserDecay: 1, riserPitchSweep: 0.2, riserCutoff: 0.3, riserReso: 0.8 }, description: "Slow Attack, Low Sweep" },
+            { duration: 5000, params: { riserAttack: 4, riserDecay: 1, riserPitchSweep: 0.9, riserCutoff: 0.3, riserReso: 0.8 }, description: "Slow Attack, High Sweep" },
+            { duration: 3000, params: { riserAttack: 1, riserDecay: 2, riserPitchSweep: 0.7 }, description: "Fast Attack" },
+        ]
+    }],
+};
+
+
 export const DEFAULT_MENU_SETTINGS: MenuSettings = {
-    playerInfluence: 0.6, // Renamed from playerInfluence, represents Bio-Feedback Influence
+    playerInfluence: 0.6,
     hnmModulationDepth: 0.5,
     micFeedbackToL0Strength: 0.25,
     explorationInfluence: 0.1,
@@ -73,15 +201,27 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     bassFilterKeyTrack: 0.4,
     bassFilterDecay: 0.15,
     bassAmpDecay: 0.1,
+    bassDistortion: 0.0,
     bassLevel: 0.8,
-    acidPatternDensity: 0.9,
-    acidOctave: 2,
-    acidCutoff: 0.75,
-    acidReso: 0.8,
-    acidEnvAmt: 0.9,
-    acidDecay: 0.15,
-    acidAccentAmount: 0.5,
-    acidLevel: 0.65,
+    leadPatternDensity: 0.9,
+    leadOctave: 2,
+    leadWaveformMix: 1.0,
+    leadFmAmount: 0.0,
+    leadDistortion: 0.0,
+    leadCutoff: 0.75,
+    leadReso: 0.8,
+    leadEnvAmt: 0.9,
+    leadDecay: 0.15,
+    leadAccentAmount: 0.5,
+    leadLevel: 0.65,
+    acidPatternDensity: 0.0,
+    acidOctave: 1,
+    acidCutoff: 0.5,
+    acidReso: 0.7,
+    acidEnvAmt: 0.8,
+    acidDecay: 0.2,
+    acidAccentAmount: 0.6,
+    acidLevel: 0.0,
     atmosOscType: 1,
     atmosEvolutionRate: 0.7,
     atmosCutoff: 0.65,
@@ -121,7 +261,7 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     reverbShimmer: 0.6,
     reverbMix: 0.5,
     enableSpeechCommands: true,
-    enableTapReset: true,
+    enableLongPressToggleUI: true,
     enablePsyCoreModulatorMode: false,
     enableAiCopilotMode: false,
     aiCopilotThought: 'AI Co-pilot is idle.',
@@ -139,6 +279,14 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     hnmWeightDecay: 0.0001,
     showLocalAiPanel: false,
     localAiStatus: { isRunning: false, logs: ['Awaiting user action.'] },
+    showMemoryDebug: false,
+    isUiVisible: true,
+    enableInstrumentTuningMode: false,
+    tuningWorkbench_selectedInstrument: 'Master Bus',
+    tuningWorkbench_selectedScript: 'FX Sweep (Kick Source)',
+    tuningWorkbench_isScriptRunning: false,
+    tuningWorkbench_currentStepInfo: 'Idle',
+
 
     // --- DEPRECATED - For older GUI compatibility ---
     genreRuleInfluence: 0.5,
@@ -148,18 +296,13 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     bassFilterLfoRate: 0.2,
     bassFilterLfoDepth: 0,
     leadOscType: 2,
-    leadOctave: 0.5,
     leadPW: 0.5,
-    leadCutoff: 0.6,
-    leadReso: 0.5,
-    leadEnvAmt: 0.7,
     leadFilterDecay: 0.3,
     leadAmpDecay: 0.5,
     leadPitchLfoRate: 0.2,
     leadPitchLfoDepth: 0,
     leadFilterLfoRate: 0.3,
     leadFilterLfoDepth: 0,
-    leadLevel: 0.5,
     hatClosedDecay: 0.05,
     hatOpenDecay: 0.2,
     hatHpfCutoff: 0.5,
@@ -171,6 +314,7 @@ export const DEFAULT_MENU_SETTINGS: MenuSettings = {
     noiseFxLfoRate: 0.3,
     noiseFxLfoDepth: 0,
     noiseFxLevel: 0.3,
+    acidMode: 0,
 };
 
 export const clamp = (v: number, min: number, max: number): number => Math.max(min, Math.min(v, max));

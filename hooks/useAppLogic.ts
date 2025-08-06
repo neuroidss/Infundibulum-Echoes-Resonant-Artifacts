@@ -1,8 +1,11 @@
+
 import { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import type { ActiveArtifactInfo } from '../types';
 import { lerp } from '../lib/utils';
-import { TARGET_FPS, USE_DEBUG, SYNC_THRESHOLD, SYNC_DECAY, STATE_VECTOR_SIZE } from '../constants';
+import { TARGET_FPS, USE_DEBUG, STATE_VECTOR_SIZE } from '../constants';
+
+declare var tf: any;
 
 const vertexShader = `
     varying vec2 vUv;
@@ -35,14 +38,14 @@ const fragmentShader = (MAX_ARTIFACTS_SHADER: number) => `
 `;
 
 
-export const useRenderLoop = (
+export const useAppLogic = (
     canvasRef: React.RefObject<HTMLCanvasElement>,
     getHnmOutputs: () => {
         currentResonantStateVector: number[],
         activeArtifactInfo: ActiveArtifactInfo,
         lastL0Anomaly: number
     },
-    setDebugInfo: (info: string) => void,
+    updateDebugDisplay: (fps: number) => void
 ) => {
     const renderer = useRef<THREE.WebGLRenderer | null>(null);
     const scene = useRef<THREE.Scene | null>(null);
@@ -60,11 +63,11 @@ export const useRenderLoop = (
     const complexityLevel = useRef(0.5);
     const syncFactor = useRef(0.0);
 
-    const renderDependencies = useRef({ getHnmOutputs, setDebugInfo });
-    renderDependencies.current = { getHnmOutputs, setDebugInfo };
+    const renderDependencies = useRef({ getHnmOutputs, updateDebugDisplay });
+    renderDependencies.current = { getHnmOutputs, updateDebugDisplay };
 
     const gameLoop = useCallback(async (timestamp: number) => {
-        const { getHnmOutputs, setDebugInfo } = renderDependencies.current;
+        const { getHnmOutputs, updateDebugDisplay } = renderDependencies.current;
 
         if (!frameInfo.current.isLooping || !renderer.current || !scene.current || !camera.current || !material.current) return;
         
@@ -81,6 +84,9 @@ export const useRenderLoop = (
             frameInfo.current.currentFPS = frameInfo.current.frameCount / fpsElapsed;
             frameInfo.current.lastFpsTime = timestamp;
             frameInfo.current.frameCount = 0;
+            if (USE_DEBUG) {
+                updateDebugDisplay(frameInfo.current.currentFPS);
+            }
         }
         
         // State updates for visuals
@@ -103,10 +109,6 @@ export const useRenderLoop = (
         material.current.uniforms.complexity.value = complexityLevel.current;
         
         renderer.current.render(scene.current, camera.current);
-
-        if (USE_DEBUG) {
-            setDebugInfo(`FPS: ${frameInfo.current.currentFPS.toFixed(1)} | Comp: ${complexityLevel.current.toFixed(3)} | Arts: ${activeArtifactInfo.ids.length}`);
-        }
 
     }, []);
 

@@ -9,7 +9,7 @@ export const useAppUI = () => {
 
     const showWarning = useCallback((message: string, duration: number = 5000) => {
         setWarningInfo({ message, visible: true });
-        if (duration > 0) {
+        if (duration >= 0) {
             setTimeout(() => setWarningInfo(w => w.message === message ? { ...w, visible: false } : w), duration);
         }
     }, []);

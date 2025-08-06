@@ -1,6 +1,6 @@
 
+
 import { useState, useEffect, useRef, useCallback, RefObject } from 'react';
-import { pipeline, AutomaticSpeechRecognitionPipeline } from '@xenova/transformers';
 import {
     VERSION, STATE_VECTOR_SIZE, LOCAL_STORAGE_KEY, LOCAL_STORAGE_MENU_KEY,
     HNM_HIERARCHY_LEVEL_CONFIGS, HNM_POLICY_HEAD_INPUT_LEVEL_NAME,
@@ -10,20 +10,38 @@ import {
     HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM,
     TARGET_FPS,
     ARTIFACT_CREATION_SYNC_THRESHOLD,
-    ARTIFACT_CREATION_SYNC_DURATION_MS
+    ARTIFACT_CREATION_SYNC_DURATION_MS,
+    DEFAULT_MENU_SETTINGS,
+    TUNING_MODE_PRESET,
+    TUNING_SCRIPTS
 } from '../constants';
 import { useSettings } from './useSettings';
 import { useAppUI } from './useAppUI';
 import { useIO } from './useIO';
 import { useHnmAndRag } from './useHnmAndRag';
-import { useRenderLoop } from './useAppLogic';
+import { useAppLogic } from './useAppLogic';
 import { useAiFeatures } from './useAiFeatures';
 import { PlaceholderInputProcessor } from '../lib/inputs';
 import { tensorLerp, lerp } from '../lib/utils';
 import { disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
-import type { MenuSettings } from '../types';
+import type { MenuSettings, HnmLastStepOutput, LastRecording } from '../types';
 
 declare var tf: any;
+
+// --- Parameter Sanitization Helper ---
+const sanitizeParams = (params: MenuSettings): MenuSettings => {
+    const sanitized = { ...params };
+    for (const key in sanitized) {
+        const k = key as keyof MenuSettings;
+        const value = (sanitized as any)[k];
+        if (typeof value === 'number' && !isFinite(value)) {
+            console.warn(`[Sanitizer] Found non-finite value for param "${k}": ${value}. Resetting to default.`);
+            (sanitized as any)[k] = (DEFAULT_MENU_SETTINGS as any)[k] ?? 0;
+        }
+    }
+    return sanitized;
+};
+
 
 // --- HNM Conductor Logic: The core of the new architecture ---
 const calculateModulatedParams = (
@@ -50,10 +68,10 @@ const calculateModulatedParams = (
     modulated.bassCutoff = mod(baseSettings.bassCutoff, 6);
     modulated.bassReso = mod(baseSettings.bassReso, 7);
     modulated.bassGlide = mod(baseSettings.bassGlide, 8);
-    modulated.acidPatternDensity = mod(baseSettings.acidPatternDensity, 9);
-    modulated.acidCutoff = mod(baseSettings.acidCutoff, 10);
-    modulated.acidReso = mod(baseSettings.acidReso, 11);
-    modulated.acidAccentAmount = mod(baseSettings.acidAccentAmount, 12);
+    modulated.leadPatternDensity = mod(baseSettings.leadPatternDensity, 9);
+    modulated.leadCutoff = mod(baseSettings.leadCutoff, 10);
+    modulated.leadReso = mod(baseSettings.leadReso, 11);
+    modulated.leadAccentAmount = mod(baseSettings.leadAccentAmount, 12);
     modulated.atmosEvolutionRate = mod(baseSettings.atmosEvolutionRate, 13);
     modulated.atmosCutoff = mod(baseSettings.atmosCutoff, 14);
     modulated.atmosSpread = mod(baseSettings.atmosSpread, 15);
@@ -80,45 +98,25 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     } = useAppUI();
     
     const {
-        menuSettings, setMenuSettings, handleMenuSettingChange,
-        resetMenuSettingsToDefault, isAiDisabled,
+        menuSettings, setMenuSettings,
+        handleMenuSettingChange: originalHandleMenuSettingChange,
+        resetMenuSettingsToDefault: baseResetMenuToDefault,
+        isAiDisabled,
     } = useSettings({ showWarning, showError });
     
-    const io = useIO({
-        onSpeechCommand: handleSpeechCommand,
-        setSpeechStatus,
-        showError,
-        showWarning
-    });
-
     const hnm = useHnmAndRag(showLoading);
-    const [hnmStateVector, setHnmStateVector] = useState<number[]>(new Array(STATE_VECTOR_SIZE).fill(0.5));
-
-    const ai = useAiFeatures({
-        menuSettings,
-        isAiDisabled,
-        showWarning,
-        showLoading,
-        setMenuSettings,
-        handleMenuSettingChange,
-        getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer, outputRhythm: io.inputState.current.outputRhythm }),
-        getHnmAnomaly: () => hnm.lastL0Anomaly.current,
-        captureMultimodalContext: io.captureMultimodalContext,
-    });
     
-    const renderLoop = useRenderLoop(
-        canvasRef,
-        () => ({
-            currentResonantStateVector: hnmStateVector,
-            activeArtifactInfo: hnm.activeArtifactInfo.current,
-            lastL0Anomaly: hnm.lastL0Anomaly.current,
-        }),
-        setDebugInfo
-    );
-
+    const scriptRunnerTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const recordedChunksRef = useRef<Blob[]>([]);
+    const hnmStateVector = useRef<number[]>(new Array(STATE_VECTOR_SIZE).fill(0.5));
+    
+    const [lastRecording, setLastRecording] = useState<LastRecording | null>(null);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [isInteractive, setIsInteractive] = useState(false);
     const [isInstallingLocalAiScript, setIsInstallingLocalAiScript] = useState(false);
     const [isServerConnected, setIsServerConnected] = useState(false);
+
     const appState = useRef({
         inputProcessor: null as PlaceholderInputProcessor | null,
         lastArtifactCreationTime: 0,
@@ -132,11 +130,24 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     const gameLoopRef = useRef({ isRunning: false });
     const autoSaveInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // Forward declare refs for callbacks to break dependency cycles
+    const onSpeechCommandRef = useRef<(command: string) => void | null>(null);
+    const onToggleUIRef = useRef<() => void | null>(null);
+
+    const io = useIO({
+        onSpeechCommand: (command) => onSpeechCommandRef.current?.(command),
+        setSpeechStatus,
+        showError,
+        showWarning,
+        onToggleUI: () => onToggleUIRef.current?.(),
+        isLongPressUIToggleEnabled: menuSettings.enableLongPressToggleUI,
+    });
+
     const saveStateToLocalStorage = useCallback(async () => {
         if (!appState.interactionOccurred || !hnm.currentResonantState.current || hnm.currentResonantState.current.isDisposed || !hnm.artifactManager.current || appState.isSavingState) return;
         appState.isSavingState = true;
         try {
-            const stateArray = await hnm.currentResonantState.current.squeeze([0, 1]).data();
+            const stateArray = await tf.tidy('saveState', () => hnm.currentResonantState.current.squeeze([0, 1])).data();
             const stateToSave = {
                 resonantState: Array.from(stateArray),
                 artifacts: hnm.artifactManager.current.artifacts,
@@ -150,7 +161,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             appState.isSavingState = false;
         }
     }, [appState, hnm]);
-    
+
     const resetHnmRag = useCallback(() => {
         showWarning("Resetting HNM/RAG State...", 1500);
         io.speechController.current?.stopListening();
@@ -159,24 +170,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         localStorage.removeItem(LOCAL_STORAGE_MENU_KEY);
         setTimeout(() => window.location.reload(), 500);
     }, [showWarning, io.speechController]);
-    
-    function handleSpeechCommand(command: string) {
-        switch (command) {
-            case 'CREATE':
-                createArtifactOnSync(true); // Force create
-                break;
-            case 'FORGET_OLDEST':
-                if (hnm.artifactManager.current?.forgetOldestArtifact()) {
-                    io.triggerVisualFeedback(0.3, 0.2);
-                    saveStateToLocalStorage();
-                }
-                break;
-            case 'RESET':
-                resetHnmRag();
-                break;
-        }
-    }
-    
+
     const createArtifactOnSync = useCallback(async (force = false) => {
         const now = Date.now();
         if (!force && (now - appState.lastArtifactCreationTime < ARTIFACT_CREATION_INTERVAL_MS)) return;
@@ -193,9 +187,403 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 showWarning("Vibe Synchronized. Artifact Created.", 2000);
             }
         }
-    }, [appState, hnm, io.triggerVisualFeedback, saveStateToLocalStorage, showWarning]);
+    }, [appState, hnm, io, saveStateToLocalStorage, showWarning]);
+    
+    const handleSpeechCommand = useCallback((command: string) => {
+        switch (command) {
+            case 'CREATE':
+                createArtifactOnSync(true); // Force create
+                break;
+            case 'FORGET_OLDEST':
+                if (hnm.artifactManager.current?.forgetOldestArtifact()) {
+                    io.triggerVisualFeedback(0.3, 0.2);
+                    saveStateToLocalStorage();
+                }
+                break;
+            case 'RESET':
+                resetHnmRag();
+                break;
+        }
+    }, [createArtifactOnSync, hnm.artifactManager, io, saveStateToLocalStorage, resetHnmRag]);
+
+    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, hnmStateVector: hnmStateVector.current });
+    gameLogicDependencies.current = { hnm, appState, io, menuSettings, hnmStateVector: hnmStateVector.current };
+
+    const gameStep = useCallback(async () => {
+        // Top-level guards to prevent running after cleanup or during mode switches
+        if (!gameLoopRef.current.isRunning) return;
+
+        const { hnm, appState, io, menuSettings, hnmStateVector: currentHnmStateVector } = gameLogicDependencies.current;
+
+        if (menuSettings.enableInstrumentTuningMode) {
+            return; // Explicitly stop logic in tuning mode
+        }
+
+        // Guard against null refs that can occur during cleanup
+        if (!hnm.hnmSystem.current || !appState.inputProcessor || !hnm.artifactManager.current) {
+            if (gameLoopRef.current.isRunning) {
+                console.warn("gameStep skipped: HNM or other critical refs not initialized.");
+            }
+            return;
+        }
+
+        // --- Vibe Sync Logic ---
+        const motionTempo = io.inputState.current.accelerometer.rhythmTempo;
+        const outputTempo = io.inputState.current.outputRhythm.bpm;
+        const tempoDiff = Math.abs(motionTempo - outputTempo);
+        const syncFactor = Math.max(0, 1 - tempoDiff / 50); // 0 diff = 1.0 sync, 50bpm diff = 0.0 sync
+        io.inputState.current.syncFactor = lerp(io.inputState.current.syncFactor, syncFactor, 0.1);
+
+        // --- Artifact Creation on Sustained Sync ---
+        const now = Date.now();
+        if (io.inputState.current.syncFactor > ARTIFACT_CREATION_SYNC_THRESHOLD) {
+            if (!appState.syncState.isSyncing) {
+                appState.syncState.isSyncing = true;
+                appState.syncState.syncStartTime = now;
+            } else if (now - appState.syncState.syncStartTime > ARTIFACT_CREATION_SYNC_DURATION_MS) {
+                createArtifactOnSync();
+                appState.syncState.isSyncing = false; // Reset after creation
+            }
+        } else {
+            appState.syncState.isSyncing = false;
+        }
 
 
+        const hnmStepPackage = tf.tidy(() => {
+            const sensoryInputTensor = appState.inputProcessor!.process(io.inputState.current, io.inputState.current.currentTime);
+            const artifactSignal = hnm.projectArtifactsToExternalSignal(hnm.activeArtifactInfo.current, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM);
+            
+            const vibeTargetVector = new Array(STATE_VECTOR_SIZE).fill(0.5);
+            if (io.inputState.current.syncFactor < 0.4) { // User is out of sync, adapt to them
+                const motionPeak = io.inputState.current.accelerometer.rhythmPeak; // Complexity
+                const motionTempoNorm = (motionTempo - 60) / 160; // 60-220bpm range
+                vibeTargetVector[0] = motionTempoNorm; // masterBPM
+                vibeTargetVector[1] = motionPeak; // kick density
+                vibeTargetVector[5] = motionPeak; // bass density
+                vibeTargetVector[8] = motionPeak; // complexity
+            } else { // User is in sync, reinforce current state
+                currentHnmStateVector.forEach((val: number, i: number) => vibeTargetVector[i] = val);
+            }
+            const vibeTargetSignal = tf.tensor1d(vibeTargetVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
+            
+            const micDiffMag = Math.abs(io.inputState.current.mic.rhythmPeak - io.inputState.current.accelerometer.rhythmPeak);
+            const externalL0Signal = tf.tidy('externalL0Signal_creation', () => {
+                const rawSignal = hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength);
+                return rawSignal.reshape([1, 1, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM]);
+            });
+
+            const externalSignals = {
+                [HNM_HIERARCHY_LEVEL_CONFIGS[0].external_input_config!.source_signal_name]: externalL0Signal,
+                [HNM_HIERARCHY_LEVEL_CONFIGS[1].external_input_config!.source_signal_name]: vibeTargetSignal,
+            };
+
+            return hnm.hnmSystem.current!.step(
+                hnm.hnmMemoryStates.current,
+                hnm.hnmLastStepOutputs.current,
+                { [HNM_HIERARCHY_LEVEL_CONFIGS[0].name]: sensoryInputTensor },
+                externalSignals, true
+            );
+        });
+
+        if (hnm.hnmLastStepOutputs.current) {
+            Object.values(hnm.hnmLastStepOutputs.current).forEach((output: HnmLastStepOutput) => {
+                if (output?.retrievedVal && !output.retrievedVal.isDisposed) {
+                    output.retrievedVal.dispose();
+                }
+            });
+        }
+        hnm.hnmMemoryStates.current.forEach(disposeMemStateWeights);
+        hnm.hnmLastStepOutputs.current = hnmStepPackage.newlyRetrievedValues;
+        hnm.hnmMemoryStates.current = hnmStepPackage.nextBotStates;
+        
+        const policyHeadOutput = hnmStepPackage.newlyRetrievedValues[HNM_POLICY_HEAD_INPUT_LEVEL_NAME]?.retrievedVal;
+        if (policyHeadOutput && !policyHeadOutput.isDisposed) {
+            const explorationFactor = menuSettings.explorationInfluence * hnm.lastL0Anomaly.current;
+            const newResonantState = tf.tidy(() => {
+                const noise = tf.randomUniform(policyHeadOutput.shape, -1, 1).mul(explorationFactor);
+                return policyHeadOutput.add(noise).clipByValue(0,1);
+            });
+            
+            const blendedState = tf.tidy(() => tensorLerp(
+                hnm.currentResonantState.current, newResonantState, menuSettings.playerInfluence
+            ));
+            newResonantState.dispose();
+            
+            hnm.currentResonantState.current?.dispose();
+            hnm.currentResonantState.current = tf.keep(blendedState);
+        }
+        
+        const data = await tf.tidy(() => hnm.currentResonantState.current.squeeze([0, 1])).data();
+        hnmStateVector.current = Array.from(data);
+        hnm.activeArtifactInfo.current = await hnm.artifactManager.current!.findRelevantArtifacts(hnm.currentResonantState.current, hnm.embeddingsReady, ARTIFACT_SIMILARITY_THRESHOLD, MAX_ACTIVE_ARTIFACTS_LOGIC);
+        
+        const l0AnomalyTensor = hnmStepPackage.anomalies['L0_IntentProcessing'];
+        hnm.lastL0Anomaly.current = (await l0AnomalyTensor.data())[0];
+        disposeHnsResultsTensors(hnmStepPackage);
+        
+    }, [createArtifactOnSync, hnm]);
+
+    const runGameLoop = useCallback(async () => {
+        if (!gameLoopRef.current.isRunning) return;
+    
+        const loopStart = performance.now();
+    
+        await gameStep();
+    
+        const loopEnd = performance.now();
+        const duration = loopEnd - loopStart;
+        const delay = Math.max(0, (1000 / TARGET_FPS) - duration);
+        
+        setTimeout(runGameLoop, delay);
+    }, [gameStep]);
+
+    const stopTuningScript = useCallback(() => {
+        scriptRunnerTimeouts.current.forEach(clearTimeout);
+        scriptRunnerTimeouts.current = [];
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+            mediaRecorderRef.current.stop();
+        }
+        setMenuSettings(prev => {
+            if (!prev.enableInstrumentTuningMode) return prev;
+            const wasRunning = prev.tuningWorkbench_isScriptRunning;
+            const newSettings = {
+                ...prev,
+                ...TUNING_MODE_PRESET,
+                enableInstrumentTuningMode: true,
+                tuningWorkbench_isScriptRunning: false,
+                tuningWorkbench_currentStepInfo: wasRunning ? 'Stopped.' : 'Idle.'
+            };
+            io.updateAudioWorklet(newSettings);
+            return newSettings;
+        });
+    }, [setMenuSettings, io]);
+
+    const resetMenuSettingsToDefault = useCallback(() => {
+        const currentUIVisibility = menuSettings.isUiVisible;
+        const currentApiSettings = {
+            googleApiKey: menuSettings.googleApiKey,
+            openAiApiKey: menuSettings.openAiApiKey,
+            openAiBaseUrl: menuSettings.openAiBaseUrl,
+            ollamaHost: menuSettings.ollamaHost,
+            selectedModelId: menuSettings.selectedModelId,
+            localAiStatus: menuSettings.localAiStatus,
+        };
+        baseResetMenuToDefault();
+        setMenuSettings(prev => ({
+            ...prev,
+            ...currentApiSettings,
+            isUiVisible: currentUIVisibility,
+        }));
+    }, [baseResetMenuToDefault, menuSettings, setMenuSettings]);
+
+    const handleMenuSettingChange = useCallback(<K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => {
+        if (key === 'enableInstrumentTuningMode') {
+            setLastRecording(null);
+            io.setMasterGain(0, 0.02); // Mute audio immediately
+
+            if (value === true) { // ENTERING tuning mode
+                gameLoopRef.current.isRunning = false;
+                // The timeout ensures the gain ramp completes before we change settings and unmute
+                setTimeout(() => {
+                    const newSettings = {
+                        ...menuSettings,
+                        ...TUNING_MODE_PRESET,
+                        enableInstrumentTuningMode: true,
+                        tuningWorkbench_currentStepInfo: 'Idle. Select a script to run.',
+                        tuningWorkbench_isScriptRunning: false,
+                    };
+                    setMenuSettings(newSettings);
+                    io.updateAudioWorklet(newSettings);
+                    io.setMasterGain(1.0, 0.05); // Unmute
+                }, 50);
+
+            } else { // EXITING tuning mode
+                stopTuningScript();
+                setTimeout(() => {
+                    resetMenuSettingsToDefault(); // This triggers useEffect to update worklet
+                    gameLoopRef.current.isRunning = true;
+                    runGameLoop();
+                    io.setMasterGain(1.0, 0.1); // Unmute
+                }, 50);
+                showWarning("Exited Tuning Mode. Settings reset to default.", 3000);
+            }
+        } else {
+            originalHandleMenuSettingChange(key, value);
+        }
+    }, [
+        originalHandleMenuSettingChange,
+        io,
+        menuSettings,
+        setMenuSettings,
+        stopTuningScript,
+        showWarning,
+        runGameLoop,
+        resetMenuSettingsToDefault
+    ]);
+
+    // Assign callbacks to refs. This hook updates the refs whenever the callbacks change.
+    useEffect(() => {
+        onSpeechCommandRef.current = handleSpeechCommand;
+        onToggleUIRef.current = () => {
+            handleMenuSettingChange('isUiVisible', !menuSettings.isUiVisible)
+        };
+    }, [handleSpeechCommand, handleMenuSettingChange, menuSettings.isUiVisible]);
+    
+    const ai = useAiFeatures({
+        menuSettings,
+        isAiDisabled,
+        isInteractive,
+        showWarning,
+        showLoading,
+        setMenuSettings,
+        handleMenuSettingChange: originalHandleMenuSettingChange,
+        getInputState: () => ({ mic: io.inputState.current.mic, motion: io.inputState.current.accelerometer, outputRhythm: io.inputState.current.outputRhythm }),
+        getHnmAnomaly: () => hnm.lastL0Anomaly.current,
+        captureMultimodalContext: io.captureMultimodalContext,
+    });
+    
+    const updateDebugDisplay = useCallback((fps: number) => {
+        const baseInfo = `FPS: ${fps.toFixed(1)} | Comp: ${hnm.lastL0Anomaly.current.toFixed(3)} | Arts: ${hnm.artifactManager.current?.getArtifactCount() || 0}`;
+
+        if (!menuSettings.showMemoryDebug) {
+            setDebugInfo(baseInfo);
+            return;
+        }
+
+        const totalMemInfo = tf.memory();
+        const trackedTensors = hnm.getTrackedTensorCount();
+        const untrackedTensors = totalMemInfo.numTensors - trackedTensors;
+        const totalMB = (totalMemInfo.numBytes / 1024 / 1024).toFixed(2);
+        const leakStyle = untrackedTensors > 50 ? 'style="color: #fca5a5;"' : ''; // Style for leak warning
+
+        const debugString = `
+${baseInfo}
+<br/>Total Mem: ${totalMB}MB | Buffers: ${totalMemInfo.numDataBuffers}
+<br/>Tensors: ${totalMemInfo.numTensors} (Tracked: ${trackedTensors})
+<br/><span ${leakStyle}>Untracked (Leak): ${untrackedTensors}</span>
+        `.trim();
+
+        setDebugInfo(debugString);
+    }, [hnm, setDebugInfo, menuSettings.showMemoryDebug]);
+
+    const renderLoop = useAppLogic(
+        canvasRef,
+        () => ({
+            currentResonantStateVector: hnmStateVector.current,
+            activeArtifactInfo: hnm.activeArtifactInfo.current,
+            lastL0Anomaly: hnm.lastL0Anomaly.current,
+        }),
+        updateDebugDisplay
+    );
+    
+    const runScript = useCallback((isRecording: boolean) => {
+        setLastRecording(null); // Clear previous results on new run
+        const { tuningWorkbench_selectedInstrument, tuningWorkbench_selectedScript } = menuSettings;
+        const script = TUNING_SCRIPTS[tuningWorkbench_selectedInstrument as keyof typeof TUNING_SCRIPTS]?.find(s => s.name === tuningWorkbench_selectedScript);
+
+        if (!script) {
+            showWarning("Selected tuning script not found.", 3000);
+            return;
+        }
+
+        scriptRunnerTimeouts.current.forEach(clearTimeout);
+        scriptRunnerTimeouts.current = [];
+        if (mediaRecorderRef.current?.state === "recording") {
+            mediaRecorderRef.current.stop();
+        }
+
+        const baseSettings: Partial<MenuSettings> = { ...TUNING_MODE_PRESET };
+
+        if (tuningWorkbench_selectedInstrument !== "System" && tuningWorkbench_selectedInstrument !== "Master Bus") {
+            const keyPrefix = tuningWorkbench_selectedInstrument.toLowerCase();
+            (baseSettings as any)[`${keyPrefix}PatternDensity`] = 1.0;
+            (baseSettings as any)[`${keyPrefix}Level`] = 0.8;
+        }
+
+        setMenuSettings(prev => {
+            const newSettings = {
+                ...prev,
+                ...baseSettings,
+                tuningWorkbench_isScriptRunning: true,
+                tuningWorkbench_currentStepInfo: `Starting script: ${script.name}`
+            };
+            io.updateAudioWorklet(newSettings);
+            return newSettings;
+        });
+
+        let cumulativeTime = 0;
+        script.steps.forEach((step, index) => {
+            const timeoutId = setTimeout(() => {
+                setMenuSettings(currentSettings => {
+                    if (!currentSettings.tuningWorkbench_isScriptRunning) return currentSettings;
+                    const newStepSettings = {
+                        ...currentSettings,
+                        ...step.params,
+                        tuningWorkbench_currentStepInfo: `Step ${index + 1}/${script.steps.length}: ${step.description || 'Executing...'}`
+                    };
+                    io.updateAudioWorklet(newStepSettings);
+                    return newStepSettings;
+                });
+            }, cumulativeTime);
+            scriptRunnerTimeouts.current.push(timeoutId);
+            cumulativeTime += step.duration;
+        });
+
+        const finalTimeout = setTimeout(() => {
+            stopTuningScript();
+            setMenuSettings(prev => ({...prev, tuningWorkbench_currentStepInfo: 'Script finished.'}));
+        }, cumulativeTime);
+        scriptRunnerTimeouts.current.push(finalTimeout);
+
+        if (isRecording) {
+            if (!io.audioCaptureDestination.current) {
+                showError("Audio capture node not available for recording.");
+                stopTuningScript();
+                return;
+            }
+            try {
+                recordedChunksRef.current = [];
+                const mimeType = 'audio/webm;codecs=opus';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    showError(`Recording failed: MimeType ${mimeType} not supported.`);
+                    stopTuningScript();
+                    return;
+                }
+                mediaRecorderRef.current = new MediaRecorder(io.audioCaptureDestination.current.stream, { mimeType });
+                
+                mediaRecorderRef.current.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+                };
+                
+                mediaRecorderRef.current.onstop = async () => {
+                    const audioBlob = new Blob(recordedChunksRef.current, { type: mimeType });
+                    const scriptBlob = new Blob([JSON.stringify(script, null, 2)], { type: 'application/json' });
+                    
+                    const { spectrogramClip } = await io.captureMultimodalContext({ spectrogram: true, audio: false, image: false });
+                    
+                    const scriptFileName = `${tuningWorkbench_selectedInstrument}_${tuningWorkbench_selectedScript.replace(/\s+/g, '_')}`;
+
+                    const spectrogramDataUrl = spectrogramClip ? `data:${spectrogramClip.mimeType};base64,${spectrogramClip.data}` : null;
+
+                    setLastRecording({
+                        audioBlob,
+                        scriptBlob,
+                        spectrogramDataUrl,
+                        scriptFileName
+                    });
+
+                    mediaRecorderRef.current = null;
+                    recordedChunksRef.current = [];
+                };
+
+                mediaRecorderRef.current.start();
+            } catch (e) {
+                 showError(`Recording failed: ${(e as Error).message}`);
+                 stopTuningScript();
+            }
+        }
+    }, [menuSettings, showWarning, setMenuSettings, io, showError, stopTuningScript]);
+    
     const handleTrainOnArtifacts = useCallback(async () => {
         if (!menuSettings.enableHnmTraining) {
             showWarning("HNM Training is disabled in settings.", 3000);
@@ -204,7 +592,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         
         renderLoop.stop();
         gameLoopRef.current.isRunning = false;
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(() => resolve(undefined), 100));
     
         try {
             await hnm.trainOnArtifacts(menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay);
@@ -212,12 +600,12 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         } catch(e: any) {
             showError(`Training failed: ${e.message}`);
         } finally {
-            showLoading(false);
+            showLoading(false, '', '');
             renderLoop.start();
             gameLoopRef.current.isRunning = true;
             runGameLoop();
         }
-    }, [menuSettings.enableHnmTraining, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, hnm, renderLoop, showWarning, showError, showLoading]);
+    }, [menuSettings.enableHnmTraining, menuSettings.hnmLearningRate, menuSettings.hnmWeightDecay, hnm, renderLoop, showWarning, showError, showLoading, runGameLoop]);
 
     // --- Local AI Server Logic ---
     const logLocalAiEvent = useCallback((log: string) => {
@@ -225,7 +613,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             ...prev,
             localAiStatus: {
                 ...prev.localAiStatus,
-                logs: [...prev.localAiStatus.logs.slice(-50), log]
+                logs: [...(prev.localAiStatus?.logs || []).slice(-50), log]
             }
         }));
     }, [setMenuSettings]);
@@ -261,7 +649,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 try {
                     const errBody = await response.json();
                     errorMsg = errBody.error || errorMsg;
-                } catch {}
+                } catch (e) {}
                 throw new Error(errorMsg);
             }
             const result = await response.json();
@@ -290,8 +678,6 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 } else if (!initialPollDone.current) {
                     logLocalAiEvent("Backend server NOT connected. Run 'start.sh' in /server to use Local AI features.");
                 }
-                // If connection is lost, we can't be sure about the server state.
-                // Setting isRunning to false is a safe assumption for the UI.
                 setMenuSettings(p => ({
                     ...p,
                     localAiStatus: { ...p.localAiStatus, isRunning: false }
@@ -337,7 +723,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             }
         } finally {
             await pollLocalAiStatus();
-            showLoading(false);
+            showLoading(false, '');
         }
     }, [executeServerTool, logLocalAiEvent, showError, showLoading, pollLocalAiStatus]);
 
@@ -356,7 +742,7 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             }
         } finally {
             await pollLocalAiStatus();
-            showLoading(false);
+            showLoading(false, '');
         }
     }, [executeServerTool, logLocalAiEvent, showError, pollLocalAiStatus, showLoading]);
     
@@ -406,124 +792,21 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         }
     }, [menuSettings.localAiStatus.isRunning, logLocalAiEvent]);
 
-    const gameLogicDependencies = useRef({ hnm, appState, io, menuSettings, hnmStateVector });
-    gameLogicDependencies.current = { hnm, appState, io, menuSettings, hnmStateVector };
-
-    const gameStep = useCallback(async () => {
-        const { hnm, appState, io, menuSettings } = gameLogicDependencies.current;
-        if (!hnm.hnmSystem.current || !appState.inputProcessor) return;
-
-        // --- Vibe Sync Logic ---
-        const motionTempo = io.inputState.current.accelerometer.rhythmTempo;
-        const outputTempo = io.inputState.current.outputRhythm.bpm;
-        const tempoDiff = Math.abs(motionTempo - outputTempo);
-        const syncFactor = Math.max(0, 1 - tempoDiff / 50); // 0 diff = 1.0 sync, 50bpm diff = 0.0 sync
-        io.inputState.current.syncFactor = lerp(io.inputState.current.syncFactor, syncFactor, 0.1);
-
-        // --- Artifact Creation on Sustained Sync ---
-        const now = Date.now();
-        if (io.inputState.current.syncFactor > ARTIFACT_CREATION_SYNC_THRESHOLD) {
-            if (!appState.syncState.isSyncing) {
-                appState.syncState.isSyncing = true;
-                appState.syncState.syncStartTime = now;
-            } else if (now - appState.syncState.syncStartTime > ARTIFACT_CREATION_SYNC_DURATION_MS) {
-                createArtifactOnSync();
-                appState.syncState.isSyncing = false; // Reset after creation
-            }
-        } else {
-            appState.syncState.isSyncing = false;
+    const handleRunTuningScript = useCallback(() => runScript(false), [runScript]);
+    const handleRecordAndDownload = useCallback(() => runScript(true), [runScript]);
+    
+    // This effect ensures the audio worklet always has the latest parameters,
+    // especially after settings are loaded, reset, or changed by the AI.
+    // We don't run this in tuning mode as that has its own update logic.
+    useEffect(() => {
+        if (isInitialized && !menuSettings.enableInstrumentTuningMode) {
+            const modulatedParams = calculateModulatedParams(menuSettings, hnmStateVector.current, menuSettings.hnmModulationDepth);
+            // This is the safety net. No matter what the HNM does, we ensure the parameters are valid before sending them.
+            const sanitizedModulatedParams = sanitizeParams(modulatedParams);
+            io.updateAudioWorklet(sanitizedModulatedParams);
         }
+    }, [menuSettings, isInitialized, io]);
 
-
-        const hnmStepPackage = tf.tidy(() => {
-            const sensoryInputTensor = appState.inputProcessor!.process(io.inputState.current, io.inputState.current.currentTime);
-            const artifactSignal = hnm.projectArtifactsToExternalSignal(hnm.activeArtifactInfo.current, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM);
-            
-            // The "vibe target" is now dynamic, based on what the user is vibing with.
-            // If sync is high, the target is the current state. If low, it's a state derived from user's bio-feedback.
-            const vibeTargetVector = new Array(STATE_VECTOR_SIZE).fill(0.5);
-            if (io.inputState.current.syncFactor < 0.4) { // User is out of sync, adapt to them
-                const motionPeak = io.inputState.current.accelerometer.rhythmPeak; // Complexity
-                const motionTempoNorm = (motionTempo - 60) / 160; // 60-220bpm range
-                vibeTargetVector[0] = motionTempoNorm; // masterBPM
-                vibeTargetVector[1] = motionPeak; // kick density
-                vibeTargetVector[5] = motionPeak; // bass density
-                vibeTargetVector[8] = motionPeak; // complexity
-            } else { // User is in sync, reinforce current state
-                hnmStateVector.forEach((val, i) => vibeTargetVector[i] = val);
-            }
-            const vibeTargetSignal = tf.tensor1d(vibeTargetVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
-            
-            const micDiffMag = Math.abs(io.inputState.current.mic.rhythmPeak - io.inputState.current.accelerometer.rhythmPeak);
-            const externalL0SignalRaw = hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength);
-            const externalL0Signal = externalL0SignalRaw.reshape([1,1,HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM]);
-
-            const externalSignals = {
-                [HNM_HIERARCHY_LEVEL_CONFIGS[0].external_input_config!.source_signal_name]: externalL0Signal,
-                [HNM_HIERARCHY_LEVEL_CONFIGS[1].external_input_config!.source_signal_name]: vibeTargetSignal,
-            };
-
-            return hnm.hnmSystem.current!.step(
-                hnm.hnmMemoryStates.current,
-                hnm.hnmLastStepOutputs.current,
-                { [HNM_HIERARCHY_LEVEL_CONFIGS[0].name]: sensoryInputTensor },
-                externalSignals, true
-            );
-        });
-
-        // Update state from step
-        hnm.hnmMemoryStates.current.forEach(disposeMemStateWeights);
-        hnm.hnmLastStepOutputs.current = hnmStepPackage.newlyRetrievedValues;
-        hnm.hnmMemoryStates.current = hnmStepPackage.nextBotStates;
-        
-        const policyHeadOutput = hnmStepPackage.newlyRetrievedValues[HNM_POLICY_HEAD_INPUT_LEVEL_NAME]?.retrievedVal;
-        if (policyHeadOutput && !policyHeadOutput.isDisposed) {
-            const explorationFactor = menuSettings.explorationInfluence * hnm.lastL0Anomaly.current;
-            const newResonantState = tf.tidy(() => {
-                const noise = tf.randomUniform(policyHeadOutput.shape, -1, 1).mul(explorationFactor);
-                return policyHeadOutput.add(noise).clipByValue(0,1);
-            });
-            
-            const blendedState = tf.tidy(() => tensorLerp(
-                hnm.currentResonantState.current, newResonantState, menuSettings.playerInfluence
-            ));
-            newResonantState.dispose();
-            
-            hnm.currentResonantState.current?.dispose();
-            hnm.currentResonantState.current = tf.keep(blendedState);
-        }
-        
-        const currentStateVector = await hnm.currentResonantState.current.squeeze([0, 1]).data();
-        setHnmStateVector(currentStateVector);
-
-        // RAG update
-        hnm.activeArtifactInfo.current = await hnm.artifactManager.current!.findRelevantArtifacts(hnm.currentResonantState.current, hnm.embeddingsReady, ARTIFACT_SIMILARITY_THRESHOLD, MAX_ACTIVE_ARTIFACTS_LOGIC);
-        
-        // HNM Conductor: Calculate final params and send to audio worklet
-        const modulatedParams = calculateModulatedParams(menuSettings, currentStateVector, menuSettings.hnmModulationDepth);
-        io.updateAudioWorklet(modulatedParams);
-
-        // Cleanup
-        const l0AnomalyTensor = hnmStepPackage.anomalies['L0_IntentProcessing'];
-        hnm.lastL0Anomaly.current = (await l0AnomalyTensor.data())[0];
-        disposeHnsResultsTensors(hnmStepPackage);
-
-    }, [createArtifactOnSync]);
-
-    const runGameLoop = useCallback(async () => {
-        if (!gameLoopRef.current.isRunning) return;
-    
-        const loopStart = performance.now();
-    
-        await gameStep();
-    
-        const loopEnd = performance.now();
-        const duration = loopEnd - loopStart;
-        const delay = Math.max(0, (1000 / TARGET_FPS) - duration);
-        
-        setTimeout(runGameLoop, delay);
-    }, [gameStep]);
-    
     // Main Initialization
     useEffect(() => {
         let isMounted = true;
@@ -543,38 +826,55 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                     const saved = JSON.parse(savedStateJSON);
                     if (saved.version === VERSION) {
                        hnm.loadState(saved.artifacts, saved.resonantState);
+                       hnmStateVector.current = saved.resonantState;
                     }
                 } catch (e) { console.error("Error loading saved state:", e); }
             }
 
-            io.initialize(canvasRef.current!, handleInteractionStart);
+            io.initialize(canvasRef.current!);
             
-            showLoading(false);
+            showLoading(false, '');
             setWarningInfo({ message: 'Interact to begin.', visible: true });
             setIsInitialized(true);
         };
 
+        init().catch(err => {
+            showError(`Initialization failed: ${err.message}`);
+            console.error(err);
+            showLoading(false, '');
+        });
+
         const handleInteractionStart = async () => {
             if (appState.interactionOccurred) return;
             appState.interactionOccurred = true;
+            setIsInteractive(true);
+            
+            // In a normal start, we now immediately send a clean set of parameters
+            // to stabilize the audio worklet BEFORE starting the game loop.
+            if (!menuSettings.enableInstrumentTuningMode) {
+                io.updateAudioWorklet(sanitizeParams(menuSettings));
+            } else {
+                 io.updateAudioWorklet(TUNING_MODE_PRESET as MenuSettings);
+            }
 
             const audioReady = await io.initAudio();
             if(audioReady) io.speechController.current?.startListening();
 
-            hideWarning();
+            showWarning('', 0);
             renderLoop.start();
-            gameLoopRef.current.isRunning = true;
-            runGameLoop();
+            
+            if (!menuSettings.enableInstrumentTuningMode) {
+                 gameLoopRef.current.isRunning = true;
+                 runGameLoop();
+            }
 
             if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
             autoSaveInterval.current = setInterval(saveStateToLocalStorage, 15000);
         };
         
-        init().catch(err => {
-            showError(`Initialization failed: ${err.message}`);
-            showLoading(false);
-        });
-
+        const interactionEvents = ['pointerdown', 'keydown'];
+        interactionEvents.forEach(evt => window.addEventListener(evt, handleInteractionStart, { once: true }));
+        
         pollLocalAiStatus();
         const statusInterval = setInterval(pollLocalAiStatus, 5000);
 
@@ -582,11 +882,31 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
             isMounted = false; 
             renderLoop.stop();
             gameLoopRef.current.isRunning = false;
+            interactionEvents.forEach(evt => window.removeEventListener(evt, handleInteractionStart));
             if (autoSaveInterval.current) clearInterval(autoSaveInterval.current);
             hnm.reset(); 
             clearInterval(statusInterval);
+            stopTuningScript();
         };
-    }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); 
+
+     useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key.toLowerCase() === 'h') {
+                const newVisibility = !menuSettings.isUiVisible;
+                handleMenuSettingChange('isUiVisible', newVisibility);
+                if (!newVisibility) {
+                    showWarning("UI hidden. Long-press then tap to restore.", 3000);
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [menuSettings.isUiVisible, handleMenuSettingChange, showWarning]);
 
     return {
         debugInfo,
@@ -600,17 +920,22 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
         resetMenuSettingsToDefault,
         resetHnmRag,
         handleAiGenerate: ai.handleAiGenerate,
+        handleEngineerAndAnalyze: ai.handleEngineerAndAnalyze,
         isAiConfigModalVisible,
         toggleAiConfigModal,
         handleAiConfigSubmit: (cfg) => setMenuSettings(p => ({...p, ...cfg})),
         handleCopilotRefine: ai.handleCopilotRefine,
         handleTrainOnArtifacts,
-        // Local AI Server methods
         handleInstallGemmaScript,
         handleStartLocalAiServer,
         handleStopLocalAiServer,
         handleTestLocalAi,
         isInstallingLocalAiScript,
         isServerConnected,
+        handleRunTuningScript,
+        handleRecordAndDownload,
+        stopTuningScript,
+        outputAnalyser: io.outputAnalyser,
+        lastRecording,
     };
 };
