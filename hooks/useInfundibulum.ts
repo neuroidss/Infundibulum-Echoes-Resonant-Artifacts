@@ -23,7 +23,7 @@ import { useAppLogic } from './useAppLogic';
 import { useAiFeatures } from './useAiFeatures';
 import { PlaceholderInputProcessor } from '../lib/inputs';
 import { tensorLerp, lerp } from '../lib/utils';
-import { disposeMemStateWeights, disposeHnsResultsTensors } from '../lib/hnm_core_v1';
+import { disposeMemStateWeights } from '../lib/hnm_core_v1';
 import type { MenuSettings, HnmLastStepOutput, LastRecording } from '../types';
 
 declare var tf: any;
@@ -210,81 +210,99 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
     gameLogicDependencies.current = { hnm, appState, io, menuSettings, hnmStateVector: hnmStateVector.current };
 
     const gameStep = useCallback(async () => {
-        // Top-level guards to prevent running after cleanup or during mode switches
         if (!gameLoopRef.current.isRunning) return;
-
-        const { hnm, appState, io, menuSettings, hnmStateVector: currentHnmStateVector } = gameLogicDependencies.current;
-
-        if (menuSettings.enableInstrumentTuningMode) {
-            return; // Explicitly stop logic in tuning mode
-        }
-
-        // Guard against null refs that can occur during cleanup
+    
+        const { hnm, appState, io, menuSettings } = gameLogicDependencies.current;
+    
+        if (menuSettings.enableInstrumentTuningMode) return;
         if (!hnm.hnmSystem.current || !appState.inputProcessor || !hnm.artifactManager.current) {
-            if (gameLoopRef.current.isRunning) {
-                console.warn("gameStep skipped: HNM or other critical refs not initialized.");
-            }
+            if (gameLoopRef.current.isRunning) console.warn("gameStep skipped: HNM or other critical refs not initialized.");
             return;
         }
-
-        // --- Vibe Sync Logic ---
+    
         const motionTempo = io.inputState.current.accelerometer.rhythmTempo;
         const outputTempo = io.inputState.current.outputRhythm.bpm;
         const tempoDiff = Math.abs(motionTempo - outputTempo);
-        const syncFactor = Math.max(0, 1 - tempoDiff / 50); // 0 diff = 1.0 sync, 50bpm diff = 0.0 sync
+        const syncFactor = Math.max(0, 1 - tempoDiff / 50);
         io.inputState.current.syncFactor = lerp(io.inputState.current.syncFactor, syncFactor, 0.1);
-
-        // --- Artifact Creation on Sustained Sync ---
+    
         const now = Date.now();
         if (io.inputState.current.syncFactor > ARTIFACT_CREATION_SYNC_THRESHOLD) {
             if (!appState.syncState.isSyncing) {
                 appState.syncState.isSyncing = true;
                 appState.syncState.syncStartTime = now;
             } else if (now - appState.syncState.syncStartTime > ARTIFACT_CREATION_SYNC_DURATION_MS) {
-                createArtifactOnSync();
-                appState.syncState.isSyncing = false; // Reset after creation
+                await createArtifactOnSync();
+                appState.syncState.isSyncing = false;
             }
         } else {
             appState.syncState.isSyncing = false;
         }
-
-
-        const hnmStepPackage = tf.tidy(() => {
+    
+        // --- Core logic in a single tidy block for robust memory management ---
+        const {
+            finalResonantState,
+            finalMemoryStates,
+            finalLastStepOutputs,
+            l0AnomalyForUpdate,
+            vectorForUpdate,
+        } = tf.tidy(() => {
             const sensoryInputTensor = appState.inputProcessor!.process(io.inputState.current, io.inputState.current.currentTime);
             const artifactSignal = hnm.projectArtifactsToExternalSignal(hnm.activeArtifactInfo.current, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM);
-            
+    
             const vibeTargetVector = new Array(STATE_VECTOR_SIZE).fill(0.5);
-            if (io.inputState.current.syncFactor < 0.4) { // User is out of sync, adapt to them
-                const motionPeak = io.inputState.current.accelerometer.rhythmPeak; // Complexity
-                const motionTempoNorm = (motionTempo - 60) / 160; // 60-220bpm range
-                vibeTargetVector[0] = motionTempoNorm; // masterBPM
-                vibeTargetVector[1] = motionPeak; // kick density
-                vibeTargetVector[5] = motionPeak; // bass density
-                vibeTargetVector[8] = motionPeak; // complexity
-            } else { // User is in sync, reinforce current state
-                currentHnmStateVector.forEach((val: number, i: number) => vibeTargetVector[i] = val);
+            if (io.inputState.current.syncFactor < 0.4) {
+                const motionTempoNorm = (io.inputState.current.accelerometer.rhythmTempo - 60) / 160;
+                const motionPeak = io.inputState.current.accelerometer.rhythmPeak;
+                vibeTargetVector[0] = motionTempoNorm;
+                vibeTargetVector[1] = motionPeak;
+                vibeTargetVector[5] = motionPeak;
+                vibeTargetVector[8] = motionPeak;
+            } else {
+                gameLogicDependencies.current.hnmStateVector.forEach((val: number, i: number) => vibeTargetVector[i] = val);
             }
             const vibeTargetSignal = tf.tensor1d(vibeTargetVector).reshape([1, 1, HNM_GENRE_RULE_EXTERNAL_SIGNAL_DIM]);
-            
+    
             const micDiffMag = Math.abs(io.inputState.current.mic.rhythmPeak - io.inputState.current.accelerometer.rhythmPeak);
-            const externalL0Signal = tf.tidy('externalL0Signal_creation', () => {
-                const rawSignal = hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength);
-                return rawSignal.reshape([1, 1, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM]);
-            });
-
+            const micFeedbackTerm = hnm.currentResonantState.current.squeeze().mul(micDiffMag * menuSettings.micFeedbackToL0Strength);
+            const combinedL0Signal = artifactSignal.squeeze().add(micFeedbackTerm).reshape([1, 1, HNM_ARTIFACT_EXTERNAL_SIGNAL_DIM]);
+    
             const externalSignals = {
-                [HNM_HIERARCHY_LEVEL_CONFIGS[0].external_input_config!.source_signal_name]: externalL0Signal,
+                [HNM_HIERARCHY_LEVEL_CONFIGS[0].external_input_config!.source_signal_name]: combinedL0Signal,
                 [HNM_HIERARCHY_LEVEL_CONFIGS[1].external_input_config!.source_signal_name]: vibeTargetSignal,
             };
-
-            return hnm.hnmSystem.current!.step(
+    
+            const hnmStepPackage = hnm.hnmSystem.current!.step(
                 hnm.hnmMemoryStates.current,
                 hnm.hnmLastStepOutputs.current,
                 { [HNM_HIERARCHY_LEVEL_CONFIGS[0].name]: sensoryInputTensor },
                 externalSignals, true
             );
+    
+            let resonantStateCandidate;
+            const policyHeadOutput = hnmStepPackage.newlyRetrievedValues[HNM_POLICY_HEAD_INPUT_LEVEL_NAME]?.retrievedVal;
+    
+            if (policyHeadOutput && !policyHeadOutput.isDisposed) {
+                const explorationFactor = menuSettings.explorationInfluence * hnm.lastL0Anomaly.current;
+                const noise = tf.randomUniform(policyHeadOutput.shape, -1, 1).mul(explorationFactor);
+                const noisyState = policyHeadOutput.add(noise).clipByValue(0, 1);
+                resonantStateCandidate = tensorLerp(hnm.currentResonantState.current, noisyState, menuSettings.playerInfluence);
+            } else {
+                resonantStateCandidate = hnm.currentResonantState.current.clone();
+            }
+    
+            return {
+                finalResonantState: resonantStateCandidate,
+                finalMemoryStates: hnmStepPackage.nextBotStates,
+                finalLastStepOutputs: hnmStepPackage.newlyRetrievedValues,
+                l0AnomalyForUpdate: hnmStepPackage.anomalies['L0_IntentProcessing'],
+                vectorForUpdate: resonantStateCandidate.squeeze([0, 1]),
+            };
         });
-
+    
+        // --- Dispose old tensors ---
+        hnm.currentResonantState.current?.dispose();
+        hnm.hnmMemoryStates.current.forEach(disposeMemStateWeights);
         if (hnm.hnmLastStepOutputs.current) {
             Object.values(hnm.hnmLastStepOutputs.current).forEach((output: HnmLastStepOutput) => {
                 if (output?.retrievedVal && !output.retrievedVal.isDisposed) {
@@ -292,35 +310,26 @@ export const useInfundibulum = (canvasRef: RefObject<HTMLCanvasElement>) => {
                 }
             });
         }
-        hnm.hnmMemoryStates.current.forEach(disposeMemStateWeights);
-        hnm.hnmLastStepOutputs.current = hnmStepPackage.newlyRetrievedValues;
-        hnm.hnmMemoryStates.current = hnmStepPackage.nextBotStates;
-        
-        const policyHeadOutput = hnmStepPackage.newlyRetrievedValues[HNM_POLICY_HEAD_INPUT_LEVEL_NAME]?.retrievedVal;
-        if (policyHeadOutput && !policyHeadOutput.isDisposed) {
-            const explorationFactor = menuSettings.explorationInfluence * hnm.lastL0Anomaly.current;
-            const newResonantState = tf.tidy(() => {
-                const noise = tf.randomUniform(policyHeadOutput.shape, -1, 1).mul(explorationFactor);
-                return policyHeadOutput.add(noise).clipByValue(0,1);
-            });
-            
-            const blendedState = tf.tidy(() => tensorLerp(
-                hnm.currentResonantState.current, newResonantState, menuSettings.playerInfluence
-            ));
-            newResonantState.dispose();
-            
-            hnm.currentResonantState.current?.dispose();
-            hnm.currentResonantState.current = tf.keep(blendedState);
-        }
-        
-        const data = await tf.tidy(() => hnm.currentResonantState.current.squeeze([0, 1])).data();
-        hnmStateVector.current = Array.from(data);
-        hnm.activeArtifactInfo.current = await hnm.artifactManager.current!.findRelevantArtifacts(hnm.currentResonantState.current, hnm.embeddingsReady, ARTIFACT_SIMILARITY_THRESHOLD, MAX_ACTIVE_ARTIFACTS_LOGIC);
-        
-        const l0AnomalyTensor = hnmStepPackage.anomalies['L0_IntentProcessing'];
-        hnm.lastL0Anomaly.current = (await l0AnomalyTensor.data())[0];
-        disposeHnsResultsTensors(hnmStepPackage);
-        
+    
+        // --- Assign new, "kept" tensors from the tidy block ---
+        hnm.currentResonantState.current = finalResonantState;
+        hnm.hnmMemoryStates.current = finalMemoryStates;
+        hnm.hnmLastStepOutputs.current = finalLastStepOutputs;
+    
+        // --- Asynchronously get data and update JS state ---
+        const [data, l0AnomalyValue] = await Promise.all([vectorForUpdate.data(), l0AnomalyForUpdate.data()]);
+        hnmStateVector.current = Array.from(data as Float32Array);
+        hnm.lastL0Anomaly.current = l0AnomalyValue[0];
+    
+        // --- Dispose temporary tensors now that async ops are done ---
+        vectorForUpdate.dispose();
+        l0AnomalyForUpdate.dispose();
+    
+        // --- Find relevant artifacts (also async) ---
+        hnm.activeArtifactInfo.current = await hnm.artifactManager.current!.findRelevantArtifacts(
+            hnm.currentResonantState.current, hnm.embeddingsReady, ARTIFACT_SIMILARITY_THRESHOLD, MAX_ACTIVE_ARTIFACTS_LOGIC
+        );
+    
     }, [createArtifactOnSync, hnm]);
 
     const runGameLoop = useCallback(async () => {

@@ -1,4 +1,3 @@
-
 // @ts-nocheck
 // This is a direct port of the provided hnm_core_v1.js.
 // It relies on a global `tf` object from the TensorFlow.js CDN script.
@@ -263,141 +262,131 @@ export class NMM_TD_V5_TFJS {
         const oldWeightsForChangeCalc = (this.nmmParams.learning_rate > 0) ? this._getLayerWeights() : null;
         this._applyLayerWeights(currentState.layerWeights);
 
-        const resultsTidy = tf.tidy(`${this.levelName}_NMM_ForwardStep`, () => {
-            const preparedInputs = tf.tidy(`${this.levelName}_InputPrep`, () => {
-                const projectedBuSignals = [];
-                for (const name in buInputs) {
-                    if (this.buProjections[name] && buInputs[name] && !buInputs[name].isDisposed && buInputs[name].shape) {
-                        projectedBuSignals.push(this.buProjections[name].call(buInputs[name].reshape([-1, this.buInputDims[name]])));
-                    } else {
-                        if (this.nmmParams.verbose) hnmLog(`Warning: Skipping BU input for ${name} in ${this.levelName}. Using zeros.`, "warn");
-                        projectedBuSignals.push(tf.zeros([1, this.dim]));
-                    }
-                }
-                const combBu = projectedBuSignals.length > 0 ? tf.addN(projectedBuSignals) : tf.zeros([1, this.dim]);
-                const currentBuNorm = tf.norm(combBu);
+        // This function is now called from within a parent tf.tidy() block.
+        // There is no need for its own tidy block or any tf.keep() calls.
+        // Tensors created here are intermediates and will be cleaned up by the parent.
+        // Tensors in the returned object will be kept alive by the parent tidy.
 
-                const projectedTdSignals = [];
-                for (const name in tdSignals) {
-                    if (this.tdProjections[name] && tdSignals[name] && !tdSignals[name].isDisposed && tdSignals[name].shape) {
-                        projectedTdSignals.push(this.tdProjections[name].call(tdSignals[name].reshape([-1, this.tdInputDims[name]])));
-                    } else {
-                        if (this.nmmParams.verbose) hnmLog(`Warning: Skipping TD input for ${name} in ${this.levelName}. Using zeros.`, "warn");
-                        projectedTdSignals.push(tf.zeros([1, this.dim]));
-                    }
-                }
-                const combTd = projectedTdSignals.length > 0 ? tf.addN(projectedTdSignals) : tf.zeros([1, this.dim]);
-                const currentTdNorm = tf.norm(combTd);
+        // --- Input Preparation ---
+        const projectedBuSignals = [];
+        for (const name in buInputs) {
+            if (this.buProjections[name] && buInputs[name] && !buInputs[name].isDisposed && buInputs[name].shape) {
+                projectedBuSignals.push(this.buProjections[name].call(buInputs[name].reshape([-1, this.buInputDims[name]])));
+            } else {
+                if (this.nmmParams.verbose) hnmLog(`Warning: Skipping BU input for ${name} in ${this.levelName}. Using zeros.`, "warn");
+                projectedBuSignals.push(tf.zeros([1, this.dim]));
+            }
+        }
+        const combBu = projectedBuSignals.length > 0 ? tf.addN(projectedBuSignals) : tf.zeros([1, this.dim]);
+        const buNormVal = tf.norm(combBu);
 
-                let projExtSig = null;
-                if (this.nmmParams.external_signal_role !== 'none' && this.externalSignalProjection) {
-                    if (externalSignal && !externalSignal.isDisposed && externalSignal.shape && externalSignal.shape.length === 3 && externalSignal.shape[externalSignal.shape.length - 1] === this.nmmParams.external_signal_dim) {
-                        projExtSig = this.externalSignalProjection.call(externalSignal.reshape([-1, this.nmmParams.external_signal_dim]));
-                    } else {
-                        if (this.nmmParams.verbose && externalSignal) hnmLog(`Warning: External signal for ${this.levelName} invalid. Using zeros. Expected dim ${this.nmmParams.external_signal_dim}, got shape ${externalSignal?.shape}`, "warn");
-                        else if (this.nmmParams.verbose && !externalSignal && this.nmmParams.external_signal_dim > 0) hnmLog(`Warning: External signal for ${this.levelName} missing. Using zeros. Expected dim ${this.nmmParams.external_signal_dim}`, "warn");
-                        projExtSig = tf.zeros([1, this.dim]);
-                    }
-                }
-                const currentExtNorm = projExtSig ? tf.norm(projExtSig) : tf.tensor(0.0);
+        const projectedTdSignals = [];
+        for (const name in tdSignals) {
+            if (this.tdProjections[name] && tdSignals[name] && !tdSignals[name].isDisposed && tdSignals[name].shape) {
+                projectedTdSignals.push(this.tdProjections[name].call(tdSignals[name].reshape([-1, this.tdInputDims[name]])));
+            } else {
+                if (this.nmmParams.verbose) hnmLog(`Warning: Skipping TD input for ${name} in ${this.levelName}. Using zeros.`, "warn");
+                projectedTdSignals.push(tf.zeros([1, this.dim]));
+            }
+        }
+        const combTd = projectedTdSignals.length > 0 ? tf.addN(projectedTdSignals) : tf.zeros([1, this.dim]);
+        const tdNormVal = tf.norm(combTd);
 
-                let keyBaseForPredictionTarget = combBu.clone();
-                if (this.nmmParams.external_signal_role === 'add_to_bu' && projExtSig) {
-                    keyBaseForPredictionTarget = keyBaseForPredictionTarget.add(projExtSig);
-                }
+        let projExtSig = null;
+        if (this.nmmParams.external_signal_role !== 'none' && this.externalSignalProjection) {
+            if (externalSignal && !externalSignal.isDisposed && externalSignal.shape && externalSignal.shape.length === 3 && externalSignal.shape[externalSignal.shape.length - 1] === this.nmmParams.external_signal_dim) {
+                projExtSig = this.externalSignalProjection.call(externalSignal.reshape([-1, this.nmmParams.external_signal_dim]));
+            } else {
+                if (this.nmmParams.verbose && externalSignal) hnmLog(`Warning: External signal for ${this.levelName} invalid. Using zeros. Expected dim ${this.nmmParams.external_signal_dim}, got shape ${externalSignal?.shape}`, "warn");
+                else if (this.nmmParams.verbose && !externalSignal && this.nmmParams.external_signal_dim > 0) hnmLog(`Warning: External signal for ${this.levelName} missing. Using zeros. Expected dim ${this.nmmParams.external_signal_dim}`, "warn");
+                projExtSig = tf.zeros([1, this.dim]);
+            }
+        }
+        const extNormVal = projExtSig ? tf.norm(projExtSig) : tf.tensor(0.0);
 
-                let memInput = combBu.add(combTd);
-                if (this.nmmParams.external_signal_role === 'add_to_bu' && projExtSig) {
-                    memInput = memInput.add(projExtSig);
-                } else if (this.nmmParams.external_signal_role === 'add_to_td' && projExtSig) {
-                    memInput = memInput.add(projExtSig);
-                }
+        let keyBaseForPredictionTarget = combBu;
+        if (this.nmmParams.external_signal_role === 'add_to_bu' && projExtSig) {
+            keyBaseForPredictionTarget = keyBaseForPredictionTarget.add(projExtSig);
+        }
 
-                let finalValTarget = this.toValueTarget.call(keyBaseForPredictionTarget);
-                if (this.nmmParams.external_signal_role === 'add_to_target' && projExtSig) {
-                    finalValTarget = finalValTarget.add(projExtSig);
-                }
+        let memInput = combBu.add(combTd);
+        if (this.nmmParams.external_signal_role === 'add_to_bu' && projExtSig) {
+            memInput = memInput.add(projExtSig);
+        } else if (this.nmmParams.external_signal_role === 'add_to_td' && projExtSig) {
+            memInput = memInput.add(projExtSig);
+        }
 
-                return { memInput, finalValTarget, currentBuNorm, currentTdNorm, currentExtNorm };
-            });
+        let finalValTarget = this.toValueTarget.call(keyBaseForPredictionTarget);
+        if (this.nmmParams.external_signal_role === 'add_to_target' && projExtSig) {
+            finalValTarget = finalValTarget.add(projExtSig);
+        }
 
-            const keptBuNorm = tf.keep(preparedInputs.currentBuNorm);
-            const keptTdNorm = tf.keep(preparedInputs.currentTdNorm);
-            const keptExtNorm = tf.keep(preparedInputs.currentExtNorm);
+        let finalLossTarget = finalValTarget;
+        if (trainingTarget && trainingTarget.shape && !trainingTarget.isDisposed) {
+            finalLossTarget = trainingTarget;
+        }
 
-            let finalLossTarget = preparedInputs.finalValTarget;
-            if (trainingTarget && trainingTarget.shape && !trainingTarget.isDisposed) {
-                finalLossTarget = trainingTarget.clone();
+        const predictionBeforeTrain = this.memoryModel.call(memInput);
+        const retrievedValForOutput = predictionBeforeTrain.reshape([1, 1, this.dim]);
+
+        let lossVal;
+
+        if (this.optimizer && this.nmmParams.learning_rate > 0) {
+            // NOTE: The training path is complex and uses its own tidies for gradient calculation.
+            // This logic is preserved but the primary non-training path is now leak-free.
+            const trainableVarsForOptimizer = [];
+            this.memoryModel.getTrainableVariables().forEach(v => trainableVarsForOptimizer.push(v));
+            if (this.externalSignalProjection && this.nmmParams.external_signal_role !== 'none' && this.nmmParams.external_signal_dim > 0) {
+                this.externalSignalProjection.getTrainableVariables().forEach(v => trainableVarsForOptimizer.push(v));
             }
 
-            const predictionBeforeTrain = this.memoryModel.call(preparedInputs.memInput);
-            const keptPredictionForOutput = tf.keep(predictionBeforeTrain.clone().reshape([1, 1, this.dim]));
-
-            let currentLossTensor = tf.tensor(0.0);
-
-            if (this.optimizer && this.nmmParams.learning_rate > 0) {
-                const trainableVarsForOptimizer = [];
-                this.memoryModel.getTrainableVariables().forEach(v => trainableVarsForOptimizer.push(v));
-                if (this.externalSignalProjection && this.nmmParams.external_signal_role !== 'none' && this.nmmParams.external_signal_dim > 0) {
-                    this.externalSignalProjection.getTrainableVariables().forEach(v => trainableVarsForOptimizer.push(v));
-                }
-
-                if (trainableVarsForOptimizer.length > 0) {
-                    const calculateLossFn = () => tf.tidy(`${this.levelName}_calcLoss`, () => {
-                        const currentPred = this.memoryModel.call(preparedInputs.memInput);
-                        const mseLoss = this.lossFn(finalLossTarget, currentPred);
-                    
-                        if (this.nmmParams.weight_decay > 0) {
-                            const l2LossParts = [];
-                            for (const v of trainableVarsForOptimizer) {
-                                if (v.name.includes('kernel')) {
-                                    l2LossParts.push(v.square().sum());
-                                }
-                            }
-                    
-                            if (l2LossParts.length > 0) {
-                                const totalL2Loss = tf.addN(l2LossParts).mul(this.nmmParams.weight_decay / 2);
-                                return mseLoss.add(totalL2Loss);
+            if (trainableVarsForOptimizer.length > 0) {
+                const calculateLossFn = () => tf.tidy(`${this.levelName}_calcLoss`, () => {
+                    const currentPred = this.memoryModel.call(memInput);
+                    const mseLoss = this.lossFn(finalLossTarget, currentPred);
+                
+                    if (this.nmmParams.weight_decay > 0) {
+                        const l2LossParts = [];
+                        for (const v of trainableVarsForOptimizer) {
+                            if (v.name.includes('kernel')) {
+                                l2LossParts.push(v.square().sum());
                             }
                         }
-                        return mseLoss;
-                    });
-
-                    if (this.nmmParams.max_grad_norm && this.nmmParams.max_grad_norm > 0) {
-                        const { value, grads } = this.optimizer.computeGradients(calculateLossFn, trainableVarsForOptimizer);
-                        currentLossTensor.dispose(); currentLossTensor = value ? tf.keep(value) : tf.keep(tf.tensor(0.0));
-                        if (grads) {
-                            const gradArray = trainableVarsForOptimizer.map(v => grads[v.name]).filter(g => g && !g.isDisposed);
-                            let finalGradsForApply = {};
-                            if (gradArray.length > 0) {
-                                const globalNorm = tf.tidy('globalNormCalc', () => { let totalNormSq = tf.scalar(0.0); for (const grad of gradArray) { totalNormSq = totalNormSq.add(tf.norm(grad).square()); } return totalNormSq.sqrt(); });
-                                const globalNormVal = globalNorm.dataSync()[0]; globalNorm.dispose();
-                                let clipRatioScalar = null; if (globalNormVal > this.nmmParams.max_grad_norm) { clipRatioScalar = tf.scalar(this.nmmParams.max_grad_norm / (globalNormVal + 1e-6)); }
-                                trainableVarsForOptimizer.forEach(v => { if (grads[v.name] && !grads[v.name].isDisposed) { finalGradsForApply[v.name] = clipRatioScalar ? grads[v.name].mul(clipRatioScalar) : grads[v.name].clone(); } });
-                                if (clipRatioScalar) clipRatioScalar.dispose();
-                            }
-                            this.optimizer.applyGradients(finalGradsForApply);
-                            trainableVarsForOptimizer.forEach(v => { if (grads[v.name] && !grads[v.name].isDisposed) grads[v.name].dispose(); });
-                            Object.values(finalGradsForApply).forEach(g => { if (g && !g.isDisposed) g.dispose(); });
-                        } else { if (this.nmmParams.verbose) hnmLog(`Warning: Grads object from computeGradients is null/undefined for NMM ${this.levelName}.`, "warn"); }
-                    } else {
-                        const lossTensorFromOptimizer = this.optimizer.minimize(calculateLossFn, true, trainableVarsForOptimizer);
-                        currentLossTensor.dispose(); currentLossTensor = lossTensorFromOptimizer ? tf.keep(lossTensorFromOptimizer) : tf.keep(tf.tensor(0.0));
+                
+                        if (l2LossParts.length > 0) {
+                            const totalL2Loss = tf.addN(l2LossParts).mul(this.nmmParams.weight_decay / 2);
+                            return mseLoss.add(totalL2Loss);
+                        }
                     }
-                } else { if (this.nmmParams.verbose) hnmLog(`Warning: No trainable variables for NMM ${this.levelName}. Training skipped.`, "warn"); }
+                    return mseLoss;
+                });
+
+                if (this.nmmParams.max_grad_norm && this.nmmParams.max_grad_norm > 0) {
+                    const { value, grads } = this.optimizer.computeGradients(calculateLossFn, trainableVarsForOptimizer);
+                    lossVal = value ? value : tf.tensor(0.0);
+                    if (grads) {
+                        const gradArray = trainableVarsForOptimizer.map(v => grads[v.name]).filter(g => g && !g.isDisposed);
+                        let finalGradsForApply = {};
+                        if (gradArray.length > 0) {
+                            const globalNorm = tf.tidy('globalNormCalc', () => { let totalNormSq = tf.scalar(0.0); for (const grad of gradArray) { totalNormSq = totalNormSq.add(tf.norm(grad).square()); } return totalNormSq.sqrt(); });
+                            const globalNormVal = globalNorm.dataSync()[0]; globalNorm.dispose();
+                            let clipRatioScalar = null; if (globalNormVal > this.nmmParams.max_grad_norm) { clipRatioScalar = tf.scalar(this.nmmParams.max_grad_norm / (globalNormVal + 1e-6)); }
+                            trainableVarsForOptimizer.forEach(v => { if (grads[v.name] && !grads[v.name].isDisposed) { finalGradsForApply[v.name] = clipRatioScalar ? grads[v.name].mul(clipRatioScalar) : grads[v.name].clone(); } });
+                            if (clipRatioScalar) clipRatioScalar.dispose();
+                        }
+                        this.optimizer.applyGradients(finalGradsForApply);
+                        trainableVarsForOptimizer.forEach(v => { if (grads[v.name] && !grads[v.name].isDisposed) grads[v.name].dispose(); });
+                        Object.values(finalGradsForApply).forEach(g => { if (g && !g.isDisposed) g.dispose(); });
+                    }
+                } else {
+                    lossVal = this.optimizer.minimize(calculateLossFn, true, trainableVarsForOptimizer) || tf.tensor(0.0);
+                }
             } else {
-                currentLossTensor.dispose();
-                currentLossTensor = tf.keep(this.lossFn(predictionBeforeTrain, finalLossTarget));
+                lossVal = tf.tensor(0.0);
             }
-
-            return { prediction: keptPredictionForOutput, loss: currentLossTensor, buNorm: keptBuNorm, tdNorm: keptTdNorm, extNorm: keptExtNorm };
-        });
-
-        const retrievedValForOutput = resultsTidy.prediction;
-        const lossVal = resultsTidy.loss;
-        const buNormVal = resultsTidy.buNorm;
-        const tdNormVal = resultsTidy.tdNorm;
-        const extNormVal = resultsTidy.extNorm;
+        } else {
+            lossVal = this.lossFn(predictionBeforeTrain, finalLossTarget);
+        }
 
         let weightChangeVal;
         let newModelWeightsAfterTraining;
@@ -406,7 +395,7 @@ export class NMM_TD_V5_TFJS {
             weightChangeVal = this._calculateWeightChange(oldWeightsForChangeCalc, newModelWeightsAfterTraining);
             Object.values(oldWeightsForChangeCalc).forEach(arr => arr.forEach(t => { if (t && !t.isDisposed) t.dispose(); }));
         } else {
-            weightChangeVal = tf.keep(tf.tensor(0.0));
+            weightChangeVal = tf.tensor(0.0);
             newModelWeightsAfterTraining = currentState.layerWeights;
         }
 
@@ -527,103 +516,90 @@ export class HierarchicalSystemV5_TFJS {
     step(currentBotLevelStates, currentBotLastStepOutputs, sensoryInputs, externalInputsAllSources = {}, detachNextStatesMemory = true, trainingTargets = {}) {
         if (this.isDisposed) throw new Error(`HNS is disposed.`);
 
-        return tf.tidy('HNS_Step', () => {
-            const nextBotLevelStatesList = new Array(this.numLevels).fill(null);
-            const newlyRetrievedValuesForAllLevelsDict = {};
-            const stepAnomalies = {}; const stepWeightChanges = {};
-            const stepBuNorms = {}; const stepTdNorms = {}; const stepExternalNorms = {};
-            const currentStepIntermediateOutputs = {};
+        const nextBotLevelStatesList = new Array(this.numLevels).fill(null);
+        const newlyRetrievedValuesForAllLevelsDict = {};
+        const stepAnomalies = {}; const stepWeightChanges = {};
+        const stepBuNorms = {}; const stepTdNorms = {}; const stepExternalNorms = {};
+        const currentStepIntermediateOutputs = {};
 
-            for (let i = 0; i < this.numLevels; i++) {
-                const lvlMgr = this.levels[i]; const cfg = this.levelConfigsOriginal[i];
-                const lvlName = cfg.name; const buSrcNames = cfg.bu_source_level_names || []; const tdSrcNames = cfg.td_source_level_names || [];
-                const currentLevelSpecificState = currentBotLevelStates[i];
-                const lvlBuIn = {}; const lvlTdIn = {};
+        for (let i = 0; i < this.numLevels; i++) {
+            const lvlMgr = this.levels[i]; const cfg = this.levelConfigsOriginal[i];
+            const lvlName = cfg.name; const buSrcNames = cfg.bu_source_level_names || []; const tdSrcNames = cfg.td_source_level_names || [];
+            const currentLevelSpecificState = currentBotLevelStates[i];
+            const lvlBuIn = {}; const lvlTdIn = {};
 
-                if (buSrcNames.length === 0) {
-                    const rawSensoryDim = cfg.raw_sensory_input_dim;
-                    const sensoryInputTensor = sensoryInputs[lvlName];
+            if (buSrcNames.length === 0) {
+                const rawSensoryDim = cfg.raw_sensory_input_dim;
+                const sensoryInputTensor = sensoryInputs[lvlName];
 
-                    if (sensoryInputTensor && !sensoryInputTensor.isDisposed &&
-                        sensoryInputTensor.shape && sensoryInputTensor.shape.length === 3 &&
-                        sensoryInputTensor.shape[0] === 1 && sensoryInputTensor.shape[1] === 1 &&
-                        sensoryInputTensor.shape[2] === rawSensoryDim) {
-                        lvlBuIn[lvlName] = sensoryInputTensor;
-                    } else {
-                        if (lvlMgr.nmmParams.verbose) hnmLog(`Warning: Sensory input for ${lvlName} is invalid or missing. Using zeros. Expected shape [1,1,${rawSensoryDim}], got ${sensoryInputTensor?.shape}`, "warn");
-                        lvlBuIn[lvlName] = tf.zeros([1, 1, rawSensoryDim]);
-                    }
+                if (sensoryInputTensor && !sensoryInputTensor.isDisposed &&
+                    sensoryInputTensor.shape && sensoryInputTensor.shape.length === 3 &&
+                    sensoryInputTensor.shape[0] === 1 && sensoryInputTensor.shape[1] === 1 &&
+                    sensoryInputTensor.shape[2] === rawSensoryDim) {
+                    lvlBuIn[lvlName] = sensoryInputTensor;
                 } else {
-                    buSrcNames.forEach(srcName => {
-                        const buSourceOutput = currentStepIntermediateOutputs[srcName];
-                        if (buSourceOutput && !buSourceOutput.isDisposed) { lvlBuIn[srcName] = buSourceOutput; }
-                        else {
-                            hnmLog(`Warning: Missing BU source output from '${srcName}' for level '${lvlName}' in current step. Using zeros.`, "warn");
-                            lvlBuIn[srcName] = tf.zeros([1, 1, this.dims[srcName]]);
-                        }
-                    });
+                    if (lvlMgr.nmmParams.verbose) hnmLog(`Warning: Sensory input for ${lvlName} is invalid or missing. Using zeros. Expected shape [1,1,${rawSensoryDim}], got ${sensoryInputTensor?.shape}`, "warn");
+                    lvlBuIn[lvlName] = tf.zeros([1, 1, rawSensoryDim]);
                 }
-
-                tdSrcNames.forEach(srcName => {
-                    const tdSourceOutput = currentBotLastStepOutputs[srcName]?.retrievedVal;
-                    if (tdSourceOutput && !tdSourceOutput.isDisposed) { lvlTdIn[srcName] = tdSourceOutput; }
+            } else {
+                buSrcNames.forEach(srcName => {
+                    const buSourceOutput = currentStepIntermediateOutputs[srcName];
+                    if (buSourceOutput && !buSourceOutput.isDisposed) { lvlBuIn[srcName] = buSourceOutput; }
                     else {
-                        lvlTdIn[srcName] = tf.zeros([1, 1, this.dims[srcName]]);
+                        hnmLog(`Warning: Missing BU source output from '${srcName}' for level '${lvlName}' in current step. Using zeros.`, "warn");
+                        lvlBuIn[srcName] = tf.zeros([1, 1, this.dims[srcName]]);
                     }
                 });
+            }
 
-                let lvlExtInForNMMStep = null;
-                const expectedExternal = this.level_expected_external_details[i];
-                if (expectedExternal && expectedExternal.name && expectedExternal.dim > 0) {
-                    const providedSignal = externalInputsAllSources[expectedExternal.name];
-                    if (providedSignal && !providedSignal.isDisposed && providedSignal.shape &&
-                        providedSignal.shape.length === 3 && providedSignal.shape[0] === 1 &&
-                        providedSignal.shape[1] === 1 && providedSignal.shape[2] === expectedExternal.dim) {
-                        lvlExtInForNMMStep = providedSignal;
-                    } else {
-                        if (lvlMgr.nmmParams.verbose) hnmLog(`Warning for ${lvlName}: External signal '${expectedExternal.name}' invalid or missing from externalInputsAllSources. Using zeros. Expected dim ${expectedExternal.dim}, got ${providedSignal?.shape}`, "warn");
-                        lvlExtInForNMMStep = tf.zeros([1, 1, expectedExternal.dim]);
-                    }
+            tdSrcNames.forEach(srcName => {
+                const tdSourceOutput = currentBotLastStepOutputs[srcName]?.retrievedVal;
+                if (tdSourceOutput && !tdSourceOutput.isDisposed) { lvlTdIn[srcName] = tdSourceOutput; }
+                else {
+                    lvlTdIn[srcName] = tf.zeros([1, 1, this.dims[srcName]]);
                 }
-                
-                const lvlTarget = trainingTargets[lvlName] || null;
-                const nmmOutputs = lvlMgr.forwardStep(lvlBuIn, lvlTdIn, currentLevelSpecificState, lvlExtInForNMMStep, detachNextStatesMemory, lvlTarget);
+            });
 
-                nextBotLevelStatesList[i] = nmmOutputs.nextState;
-                currentStepIntermediateOutputs[lvlName] = nmmOutputs.retrievedVal; // Keep this intermediate tensor for the duration of the 'tidy' block.
-                newlyRetrievedValuesForAllLevelsDict[lvlName] = { retrievedVal: nmmOutputs.retrievedVal };
-                stepAnomalies[lvlName] = nmmOutputs.anomalyScore;
-                stepWeightChanges[lvlName] = nmmOutputs.weightChange;
-                stepBuNorms[lvlName] = nmmOutputs.buNorm;
-                stepTdNorms[lvlName] = nmmOutputs.tdNorm;
-                stepExternalNorms[lvlName] = nmmOutputs.extNorm;
+            let lvlExtInForNMMStep = null;
+            const expectedExternal = this.level_expected_external_details[i];
+            if (expectedExternal && expectedExternal.name && expectedExternal.dim > 0) {
+                const providedSignal = externalInputsAllSources[expectedExternal.name];
+                if (providedSignal && !providedSignal.isDisposed && providedSignal.shape &&
+                    providedSignal.shape.length === 3 && providedSignal.shape[0] === 1 &&
+                    providedSignal.shape[1] === 1 && providedSignal.shape[2] === expectedExternal.dim) {
+                    lvlExtInForNMMStep = providedSignal;
+                } else {
+                    if (lvlMgr.nmmParams.verbose) hnmLog(`Warning for ${lvlName}: External signal '${expectedExternal.name}' invalid or missing from externalInputsAllSources. Using zeros. Expected dim ${expectedExternal.dim}, got ${providedSignal?.shape}`, "warn");
+                    lvlExtInForNMMStep = tf.zeros([1, 1, expectedExternal.dim]);
+                }
             }
+            
+            const lvlTarget = trainingTargets[lvlName] || null;
+            const nmmOutputs = lvlMgr.forwardStep(lvlBuIn, lvlTdIn, currentLevelSpecificState, lvlExtInForNMMStep, detachNextStatesMemory, lvlTarget);
 
-            // After the loop, all intermediate tensors (like `currentStepIntermediateOutputs`) will be disposed by `tf.tidy`.
-            // We now create the final return object, cloning the tensors that need to survive this `tidy` block.
-            // The `tidy` function automatically keeps any tensor returned from it.
+            nextBotLevelStatesList[i] = nmmOutputs.nextState;
+            currentStepIntermediateOutputs[lvlName] = nmmOutputs.retrievedVal;
+            newlyRetrievedValuesForAllLevelsDict[lvlName] = { retrievedVal: nmmOutputs.retrievedVal };
+            stepAnomalies[lvlName] = nmmOutputs.anomalyScore;
+            stepWeightChanges[lvlName] = nmmOutputs.weightChange;
+            stepBuNorms[lvlName] = nmmOutputs.buNorm;
+            stepTdNorms[lvlName] = nmmOutputs.tdNorm;
+            stepExternalNorms[lvlName] = nmmOutputs.extNorm;
+        }
 
-            const finalReturn = {
-                newlyRetrievedValues: {},
-                nextBotStates: nextBotLevelStatesList, // These states are already detached (cloned and kept) inside forwardStep.
-                anomalies: {},
-                weightChanges: {},
-                buNorms: {},
-                tdNorms: {},
-                extNorms: {},
-            };
-    
-            for (const key in newlyRetrievedValuesForAllLevelsDict) {
-                finalReturn.newlyRetrievedValues[key] = { retrievedVal: newlyRetrievedValuesForAllLevelsDict[key].retrievedVal.clone() };
-            }
-            for (const key in stepAnomalies) { finalReturn.anomalies[key] = stepAnomalies[key].clone(); }
-            for (const key in stepWeightChanges) { finalReturn.weightChanges[key] = stepWeightChanges[key].clone(); }
-            for (const key in stepBuNorms) { finalReturn.buNorms[key] = stepBuNorms[key].clone(); }
-            for (const key in stepTdNorms) { finalReturn.tdNorms[key] = stepTdNorms[key].clone(); }
-            for (const key in stepExternalNorms) { finalReturn.extNorms[key] = stepExternalNorms[key].clone(); }
+        // This function is called from a parent tf.tidy() block. The tensors
+        // in the returned object will be kept alive by that parent block.
+        const finalReturn = {
+            newlyRetrievedValues: newlyRetrievedValuesForAllLevelsDict,
+            nextBotStates: nextBotLevelStatesList,
+            anomalies: stepAnomalies,
+            weightChanges: stepWeightChanges,
+            buNorms: stepBuNorms,
+            tdNorms: stepTdNorms,
+            extNorms: stepExternalNorms,
+        };
 
-            return finalReturn;
-        });
+        return finalReturn;
     }
 
     dispose() {

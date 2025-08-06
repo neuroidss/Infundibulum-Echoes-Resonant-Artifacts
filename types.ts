@@ -74,16 +74,6 @@ export interface MenuSettings {
     leadAccentAmount: number;
     leadLevel: number;
 
-    // ACID SYNTH
-    acidPatternDensity: number;
-    acidOctave: number;
-    acidCutoff: number;
-    acidReso: number;
-    acidEnvAmt: number;
-    acidDecay: number;
-    acidAccentAmount: number;
-    acidLevel: number;
-
     // ATMOS PAD
     atmosOscType: number; // 0: Saw, 1: FMish
     atmosEvolutionRate: number;
@@ -190,6 +180,14 @@ export interface MenuSettings {
     noiseFxLfoDepth: number;
     noiseFxLevel: number;
     acidMode: number;
+    acidPatternDensity: number;
+    acidOctave: number;
+    acidCutoff: number;
+    acidReso: number;
+    acidEnvAmt: number;
+    acidDecay: number;
+    acidAccentAmount: number;
+    acidLevel: number;
 }
 
 export interface LocalAiStatus {

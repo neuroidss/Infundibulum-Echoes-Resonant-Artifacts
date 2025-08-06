@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { pipeline, env as xenovaEnv, TextGenerationPipeline } from '@xenova/transformers';
 import type { MenuSettings, AIModel, LLMTool, ToolParameter, AiContext, AiContextItem } from '../types';
@@ -318,7 +319,6 @@ const soundRefinementProperties: { [key: string]: ToolParameter } = {
     mood: { name: 'mood', type: 'number', description: "Musical mood. 0: Light, 1: Twilight, 2: Dark.", required: false },
     kickPatternDensity: { name: 'kickPatternDensity', type: 'number', description: "Kick drum pattern density. Range 0-1.", required: false },
     bassCutoff: { name: 'bassCutoff', type: 'number', description: "Bass filter cutoff. Lower is darker. Range 0-1.", required: false },
-    acidCutoff: { name: 'acidCutoff', type: 'number', description: "Acid synth filter cutoff. Higher is brighter. Range 0-1.", required: false },
     atmosLevel: { name: 'atmosLevel', type: 'number', description: "Volume of the atmospheric pad. Range 0-1.", required: false },
     reverbMix: { name: 'reverbMix', type: 'number', description: "Amount of reverb effect. Range 0-1.", required: false },
     reverbShimmer: { name: 'reverbShimmer', type: 'number', description: "Amount of ethereal, pitch-shifted reverb. Range 0-1.", required: false },

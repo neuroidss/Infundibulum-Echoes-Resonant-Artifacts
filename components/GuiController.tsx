@@ -54,16 +54,6 @@ const createInstrumentAndFxGui = (
     leadFolder.add(settings, 'leadAccentAmount', 0, 1, 0.01).name('Accent').onChange((v: number) => onChange('leadAccentAmount', v));
     leadFolder.add(settings, 'leadLevel', 0, 1, 0.01).name('Level').onChange((v: number) => onChange('leadLevel', v));
 
-    const acidFolder = parentFolder.addFolder('Acid Synth').close();
-    acidFolder.add(settings, 'acidPatternDensity', 0, 1, 0.01).name('Pattern Density').onChange((v: number) => onChange('acidPatternDensity', v));
-    acidFolder.add(settings, 'acidOctave', { Low: 0, Mid: 1, High: 2 }).name('Octave').onChange((v: number) => onChange('acidOctave', Number(v)));
-    acidFolder.add(settings, 'acidCutoff', 0.01, 1, 0.01).name('Cutoff').onChange((v: number) => onChange('acidCutoff', v));
-    acidFolder.add(settings, 'acidReso', 0, 1, 0.01).name('Resonance').onChange((v: number) => onChange('acidReso', v));
-    acidFolder.add(settings, 'acidEnvAmt', 0, 1, 0.01).name('Env Amount').onChange((v: number) => onChange('acidEnvAmt', v));
-    acidFolder.add(settings, 'acidDecay', 0.01, 1, 0.01).name('Decay').onChange((v: number) => onChange('acidDecay', v));
-    acidFolder.add(settings, 'acidAccentAmount', 0, 1, 0.01).name('Accent').onChange((v: number) => onChange('acidAccentAmount', v));
-    acidFolder.add(settings, 'acidLevel', 0, 1, 0.01).name('Level').onChange((v: number) => onChange('acidLevel', v));
-
     const atmosFolder = parentFolder.addFolder('Atmos Pad').close();
     atmosFolder.add(settings, 'atmosOscType', { Saw: 0, FMish: 1 }).name('Osc Type').onChange((v: number) => onChange('atmosOscType', Number(v)));
     atmosFolder.add(settings, 'atmosEvolutionRate', 0, 1, 0.01).name('Evolution Rate').onChange((v: number) => onChange('atmosEvolutionRate', v));
@@ -319,7 +309,7 @@ const GuiController: React.FC<GuiControllerProps> = ({
         // Handle AI mode toggle states
         setControllerDisabled(controlsRef.current.aiMuseToggle, isPsyCoreModulatorActive || isCopilotActive);
         setControllerDisabled(controlsRef.current.psyCoreModulatorToggle, isDisabled || isCopilotActive);
-        setControllerDisabled(controlsRef.current.aiCopilotToggle, isDisabled || isPsyCoreModulatorActive);
+        setControllerDisabled(controlsRef.current.aiCopilotToggle, isDisabled || isCopilotActive);
 
     }, [isUiVisible, isDisabled, menuSettings.enableAiCopilotMode, menuSettings.enablePsyCoreModulatorMode]);
 
