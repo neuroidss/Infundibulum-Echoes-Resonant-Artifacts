@@ -295,6 +295,7 @@ export interface AIResponse {
 export type AiContextItem = {
     mic: InputState['mic'];
     motion: InputState['accelerometer'];
+    outputRhythm: InputState['outputRhythm'];
     hnmAnomaly: number;
     currentSettings: Partial<MenuSettings>;
     audioClip?: { mimeType: string, data: string } | null;

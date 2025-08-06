@@ -1,7 +1,5 @@
 # Infundibulum Echoes - An AI Consciousness Tool
 
-**This project is submitted to the [Google Gemma 3n Impact Challenge](https://www.kaggle.com/competitions/google-gemma-3n-hackathon).**
-
 *Infundibulum Echoes* is an experimental tool for AI-assisted self-exploration. It uses a private, on-device hybrid AI to create a synergistic bio-feedback loop, translating your body's motion and environment into intense, generative audio-visualscapes. This is not about simple wellness, but about exploring the psyche and expanding perception.
 
 > **Live Demo:** https://neuroidss.github.io/Infundibulum-Echoes-Resonant-Artifacts/
@@ -12,23 +10,33 @@
 
 The true frontier of AI is not just in solving external problems, but in helping us understand ourselves. *Infundibulum Echoes* leverages the privacy and real-time power of on-device AI like Gemma to create a personal tool for "digital psychonautics"—a journey into one's own mind, assisted by a silicon partner.
 
-The application is built on the idea that psytrance is not therapy, but a form of psychoanalysis; a tool for transcending the everyday. The AI's role is not to pacify, but to synergize. It analyzes your motion and the ambient sound, not to calm you, but to understand your intent. If you dance, it intensifies the music. If you are still, it creates complex, meditative soundscapes. The **"Psy-Core Modulator"** mode acts as a co-pilot, helping you navigate and shape your own consciousness. This creates a powerful and deeply personal impact: a tool that helps you listen to yourself.
+The application is built on the idea that psytrance is not therapy, but a form of psychoanalysis; a tool for transcending the everyday. The AI's role is not to pacify, but to synergize. It analyzes your motion and the ambient sound, not to calm you, but to understand your intent. This creates a powerful and deeply personal impact: a tool that helps you listen to yourself.
 
-## How It Works: The Hybrid AI Brain
+## Core Features: The Three AI Modes
+
+This application offers three distinct modes for interacting with the AI, each providing a different level of creative partnership.
+
+*   **AI Muse:** Your creative partner. Describe a sound, vibe, or genre in the prompt box, and the AI generates a complete, complex sonic environment from scratch. Perfect for kickstarting a new idea or exploring different musical territories.
+
+*   **AI Co-pilot:** An autonomous assistant. Once enabled, the Co-pilot periodically makes small, intelligent adjustments to the soundscape, keeping it evolving and preventing stagnation. It's like having a producer in the room who subtly tweaks knobs to keep the vibe fresh.
+
+*   **Psy-Core Modulator:** The deepest level of interaction. This mode creates a full bio-feedback loop. It continuously analyzes your body's motion and the sonic environment to synergistically evolve the audio-visuals. If you dance, the music intensifies. If you are still, it weaves intricate, ambient textures. It's designed to amplify your current state for a profound, immersive experience.
+
+## Under the Hood: The Hybrid AI Brain
 
 The application's core is a sophisticated, multi-layered AI system that runs entirely on your device, ensuring your data remains private.
 
-1.  **Psy-Core Modulator (Powered by Gemma):**
-    *   **Function:** The strategic "brain" of the system, designed to run locally using models like Gemma. It analyzes rich, multimodal context from your environment and interaction.
-    *   **Role:** This is the core of the bio-resonant feedback loop. The AI's goal is to **synergize** with the user. If it detects high motion, it generates a more energetic and complex soundscape. If it detects stillness, it can weave intricate, ambient textures. It acts as a partner, helping you explore your own state of being.
+1.  **Generative AI Layer (Gemma, Gemini):**
+    *   **Function:** The high-level, "creative" brain that powers the three AI modes. It understands natural language, analyzes rich multimodal context (sound, visuals, user motion), and makes strategic decisions about the music's direction.
+    *   **Role:** This layer can run locally via Ollama or a dedicated Python server (for full privacy with models like Gemma), or through cloud APIs like Google Gemini.
 
-2.  **HNM (Hierarchical Neural Matrix) - The Nervous System:**
-    *   **Function:** The real-time core of the application, acting as its "nervous system." It runs dozens of times per second, directly processing user input (touch, motion) and sensor data to generate the immediate audio-visual state.
-    *   **Role:** Provides the fluid, organic, and instantaneous interactive feel. It can also be trained on user-created "Resonant Artifacts" to learn personalized aesthetic preferences.
+2.  **HNM (Hierarchical Neural Matrix):**
+    *   **Function:** The real-time "nervous system." A custom TensorFlow.js model that runs dozens of times per second in the browser. It translates your immediate actions (touch, device motion) and the AI's high-level commands into the fluid, moment-to-moment generation of audio and visuals.
+    *   **Role:** Provides the organic, instantaneous interactive feel. It can also be trained on user-created "Resonant Artifacts" to learn personalized aesthetic preferences.
 
-3.  **Embeddings (RAG) - The Associative Memory:**
-    *   **Function:** The system's long-term, semantic memory. When you save a "Resonant Artifact," its sonic essence is converted into a numerical vector (an embedding).
-    *   **Role:** The HNM can then "recall" these past moments, allowing past creative choices to influence the present, creating thematic coherence and evolution.
+3.  **Embeddings & RAG (The Associative Memory):**
+    *   **Function:** The system's long-term, semantic memory. When you save a "Resonant Artifact" (a snapshot of a moment you like), its sonic essence is converted into a numerical vector (an embedding).
+    *   **Role:** This forms a Retrieval-Augmented Generation (RAG) system. The HNM can "recall" these past moments, allowing past creative choices to influence the present, creating thematic coherence and a sense of journey.
 
 ## Tech Stack
 
@@ -40,7 +48,7 @@ The application's core is a sophisticated, multi-layered AI system that runs ent
 ## Running Locally
 
 ### Option 1: Frontend Only (No Local AI Server)
-This is the simplest way to run the app. Cloud-based AI models (Google) and browser-based models (HuggingFace) will work. The "Psy-Core Modulator" will use these models if a local one isn't available.
+This is the simplest way to run the app. Cloud-based AI models (Google) and browser-based models (HuggingFace) will work. The "Psy-Core Modulator" and other AI features will use these models if a local one isn't available.
 
 1.  **Prerequisites:** Node.js and npm.
 2.  Clone the repository and install dependencies:
@@ -87,4 +95,4 @@ This enables the "Local AI Server" panel, allowing you to manage a local multimo
     npm run dev
     ```
     The frontend will automatically detect and connect to the running server.
-8.  **Install the AI Model Script:** Once the app is loaded, go to "AI > Debug & Local Server" and click **"Show Local Server"**. In the panel that appears, click the **"Install Script"** button. This will prepare the Python AI script on the server, making it ready to run. You can then start the local AI.
+8.  **Install the AI Model Script:** Once the app is loaded, go to "AI > Debug & Local Server" and click **"Show Local Server"**. In the panel that appears, click the **"Install Script"** button. This will prepare the Python AI script on the server, making it ready to run. You can then start the local AI from the same panel.

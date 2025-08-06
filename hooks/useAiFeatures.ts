@@ -1,3 +1,4 @@
+
 import { useRef, useCallback, useEffect } from 'react';
 import type { MenuSettings, AiContext, AiContextItem } from '../types';
 import { ModelProvider } from '../types';
@@ -11,7 +12,7 @@ interface UseAiFeaturesProps {
     showLoading: (visible: boolean, message?: string, progress?: string) => void;
     setMenuSettings: React.Dispatch<React.SetStateAction<MenuSettings>>;
     handleMenuSettingChange: <K extends keyof MenuSettings>(key: K, value: MenuSettings[K]) => void;
-    getInputState: () => Pick<AiContext, 'mic' | 'motion'>;
+    getInputState: () => Pick<AiContext, 'mic' | 'motion' | 'outputRhythm'>;
     getHnmAnomaly: () => number;
     captureMultimodalContext: (options?: { audio?: boolean; image?: boolean; spectrogram?: boolean; }) => Promise<{
         audioClip: { mimeType: string; data: string; } | null;
@@ -45,34 +46,35 @@ export const useAiFeatures = ({
             return;
         }
         showLoading(true, "AI Muse is thinking...", "Generating soundscape...");
-        handleAiProgress(`Muse: ${prompt.substring(0, 25)}...`);
         
         try {
             const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
             if (!selectedModel) throw new Error("No valid AI model selected.");
             
-            // AI Muse is text-only, so pass a simple context.
-            const { mic, motion } = getInputState();
+            // AI Muse is primarily text-driven, but we provide simple context.
+            const { mic, motion, outputRhythm } = getInputState();
+            const spectrogramText = transcribeSpectrogramData(null); // No spectrogram for simple prompt
+
             const context: AiContext = {
                 mic,
                 motion,
+                outputRhythm,
                 hnmAnomaly: getHnmAnomaly(),
                 currentSettings: menuSettings,
+                spectrogramText
             };
             
-            const newSettings = await generateMusicSettings(prompt, selectedModel, (msg) => handleAiProgress(`Muse: ${msg}`), menuSettings, context);
+            const newSettings = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, context);
             setMenuSettings(prev => ({
                 ...prev, 
                 ...newSettings, 
                 aiCallCount: (prev.aiCallCount || 0) + 1,
-                aiDebugLog: "Muse: Success."
             }));
             showWarning("AI Muse has created a new soundscape!", 4000);
         } catch (error) {
             const errorMsg = (error as Error).message;
             console.error("AI Muse generation failed:", error);
             showWarning(`AI Muse failed: ${errorMsg}`, 5000);
-            handleAiProgress(`Muse Error: ${errorMsg.substring(0, 40)}...`);
         } finally {
             showLoading(false);
         }
@@ -82,12 +84,12 @@ export const useAiFeatures = ({
         if (isCopilotThinkingRef.current || isAiDisabled) return;
         
         isCopilotThinkingRef.current = true;
+        showLoading(true, 'Co-pilot is thinking...');
         
         try {
             const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
             if (!selectedModel) throw new Error("No AI model selected for Co-pilot.");
 
-            showLoading(true, 'Capturing context...');
             const { audioClip, imageClip, spectrogramClip } = await captureMultimodalContext({
                 audio: selectedModel.audioSupport,
                 image: true,
@@ -95,46 +97,38 @@ export const useAiFeatures = ({
             });
             if (selectedModel.audioSupport && !audioClip) showWarning("Failed to record audio clip, using fallback.", 3000);
             
-            showLoading(true, 'Co-pilot is thinking...');
-            handleAiProgress("Co-pilot: Refining sound...");
-            
             const { aiDebugLog, aiCopilotThought, ...currentRelevantSettings } = menuSettings;
-            const { mic, motion } = getInputState();
-            const spectrogramText = transcribeSpectrogramData(spectrogramClip?.rawData ?? null);
-
+            const { mic, motion, outputRhythm } = getInputState();
+            
             const context: AiContext = {
                 mic,
                 motion,
+                outputRhythm,
                 hnmAnomaly: getHnmAnomaly(),
                 currentSettings: currentRelevantSettings,
                 audioClip,
                 imageClip,
                 spectrogramClip,
-                spectrogramText,
+                spectrogramText: transcribeSpectrogramData(spectrogramClip?.rawData ?? null),
             };
 
-            const result = await getSoundRefinement(context, selectedModel, (msg) => handleAiProgress(`Co-pilot: ${msg}`), menuSettings);
+            const result = await getSoundRefinement(context, selectedModel, handleAiProgress, menuSettings);
             
             if (result) {
-                const thought = (result as any).thought || (result as any).reason || (result as any).explanation || "Co-pilot adjusted parameters.";
-                const { thought: _t, reason: _r, explanation: _e, action: _a, ...paramsToUpdate } = result as any;
+                const thought = result.thought || "Co-pilot adjusted parameters.";
+                const { thought: _t, ...paramsToUpdate } = result;
 
-                if (thought && typeof thought === 'string') {
-                    handleMenuSettingChange('aiCopilotThought', thought);
-                }
+                handleMenuSettingChange('aiCopilotThought', thought);
                 if (Object.keys(paramsToUpdate).length > 0) {
                      setMenuSettings(prev => ({...prev, ...paramsToUpdate, aiCallCount: (prev.aiCallCount || 0) + 1}));
                 }
-                handleAiProgress("Co-pilot: Refinement applied.");
             } else {
-                handleAiProgress("Co-pilot: No refinement suggested.");
                 handleMenuSettingChange('aiCopilotThought', 'No changes suggested.');
             }
         } catch(e) {
             const errorMsg = (e as Error).message;
             console.error("Co-pilot refinement failed:", e);
             showWarning(`Co-pilot failed: ${errorMsg}`, 3000);
-            handleAiProgress(`Co-pilot Error: ${errorMsg.substring(0, 40)}...`);
             handleMenuSettingChange('aiCopilotThought', 'Error during refinement.');
         } finally {
             isCopilotThinkingRef.current = false;
@@ -147,14 +141,13 @@ export const useAiFeatures = ({
         isPsyCoreModulatorRunning.current = true;
         
         showLoading(true, 'Psy-Core Modulator active...', 'Analyzing psyche...');
-        handleAiProgress("Psy-Core: Analyzing current state...");
         
         try {
             const selectedModel = AI_MODELS.find(m => m.id === menuSettings.selectedModelId);
             if (!selectedModel) throw new Error("No AI model selected for Psy-Core Modulator.");
             
-            const capturedContext = await captureMultimodalContext({ audio: true, image: true, spectrogram: true });
-            const { mic, motion } = getInputState();
+            const capturedContext = await captureMultimodalContext({ audio: selectedModel.audioSupport, image: true, spectrogram: true });
+            const { mic, motion, outputRhythm } = getInputState();
             const hnmAnomaly = getHnmAnomaly();
             const { aiDebugLog, aiCopilotThought, ...currentRelevantSettings } = menuSettings;
 
@@ -162,6 +155,7 @@ export const useAiFeatures = ({
                 ...capturedContext,
                 mic,
                 motion,
+                outputRhythm,
                 hnmAnomaly,
                 currentSettings: currentRelevantSettings,
                 spectrogramText: transcribeSpectrogramData(capturedContext.spectrogramClip?.rawData ?? null),
@@ -177,15 +171,12 @@ export const useAiFeatures = ({
 
             const prompt = `Based on the user's current state (motion peak: ${motion.rhythmPeak.toFixed(2)}, sonic chaos/anomaly: ${hnmAnomaly.toFixed(2)}), generate a new soundscape that synergizes with and amplifies their state. If motion is high, increase energy. If chaos is high, make it more complex and interesting.`;
             
-            handleAiProgress(`Psy-Core Prompt: ${prompt}`);
-            
-            const newSettings = await generateMusicSettings(prompt, selectedModel, (msg) => handleAiProgress(`Psy-Core: ${msg}`), menuSettings, aiContext);
+            const newSettings = await generateMusicSettings(prompt, selectedModel, handleAiProgress, menuSettings, aiContext);
             
             setMenuSettings(prev => ({
                 ...prev, 
                 ...newSettings, 
                 aiCallCount: (prev.aiCallCount || 0) + 1,
-                aiDebugLog: "Psy-Core: New soundscape applied."
             }));
             
             psyCoreModulatorStateRef.current = {
@@ -199,7 +190,6 @@ export const useAiFeatures = ({
             const errorMsg = (e as Error).message;
             console.error("Psy-Core Modulator failed:", e);
             showWarning(`Psy-Core Modulator failed: ${errorMsg}`, 5000);
-            handleAiProgress(`Psy-Core Error: ${errorMsg.substring(0, 40)}...`);
         } finally {
             isPsyCoreModulatorRunning.current = false;
             showLoading(false);

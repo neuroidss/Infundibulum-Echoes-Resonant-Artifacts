@@ -4,5 +4,5 @@
 
 echo "🚀 Starting Infundibulum Backend Server..."
 source venv/bin/activate
-ln -s start.ts.txt start.ts
+cp -rf server.ts.txt server.ts
 npm start

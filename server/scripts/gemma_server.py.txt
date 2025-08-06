@@ -1,4 +1,3 @@
-
 # server/scripts/gemma_server.py
 import os
 import sys
@@ -7,16 +6,18 @@ import base64
 import io
 import asyncio
 import logging
+import json
 from contextlib import asynccontextmanager
 
 import torch
 import numpy as np
 import av
+from PIL import Image
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Union, Literal
+from typing import List, Dict, Any, Union, Literal, Optional
 from unsloth import FastModel
 
 # --- Basic Logging Setup ---
@@ -34,19 +35,56 @@ class ChatCompletionMessageAudioPart(BaseModel):
     type: Literal["audio_url"]
     audio_url: ChatCompletionMessageAudioURL
 
+class ChatCompletionMessageImageURL(BaseModel):
+    url: str # Expects data URI: "data:image/[type];base64,{data}"
+
+class ChatCompletionMessageImagePart(BaseModel):
+    type: Literal["image_url"]
+    image_url: ChatCompletionMessageImageURL
+
 class ChatCompletionMessage(BaseModel):
     role: str
-    content: Union[str, List[Union[ChatCompletionMessageTextPart, ChatCompletionMessageAudioPart]]]
+    content: Union[str, List[Union[ChatCompletionMessageTextPart, ChatCompletionMessageAudioPart, ChatCompletionMessageImagePart]]]
+
+# --- New models for Tool Calling ---
+class FunctionSpec(BaseModel):
+    name: str
+    description: Optional[str] = None
+    parameters: Dict[str, Any]
+
+class ToolSpec(BaseModel):
+    type: Literal["function"]
+    function: FunctionSpec
+
+class ToolChoice(BaseModel):
+    type: Literal["function"]
+    function: Dict[str, str]
 
 class ChatCompletionRequest(BaseModel):
     model: str
     messages: List[ChatCompletionMessage]
     temperature: float = 0.1
-    max_tokens: int = 512
+    max_tokens: int = 2048
+    tools: Optional[List[ToolSpec]] = None
+    tool_choice: Optional[Union[Literal["auto", "none"], ToolChoice]] = None
+
+class FunctionCall(BaseModel):
+    name: str
+    arguments: str # Should be a JSON string
+
+class ToolCall(BaseModel):
+    id: str
+    type: Literal["function"]
+    function: FunctionCall
+
+class AssistantMessage(BaseModel):
+    role: Literal["assistant"]
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
 
 class ChatCompletionChoice(BaseModel):
     index: int = 0
-    message: Dict[str, str]
+    message: AssistantMessage
     finish_reason: str = "stop"
 
 class ChatCompletionResponse(BaseModel):
@@ -58,6 +96,18 @@ class ChatCompletionResponse(BaseModel):
 
 # --- Global State ---
 model_state = {}
+
+def load_image_from_base64(base64_str: str) -> Image.Image:
+    """Decodes a base64 image string into a PIL Image."""
+    try:
+        image_data = base64.b64decode(base64_str)
+        image_stream = io.BytesIO(image_data)
+        image = Image.open(image_stream).convert("RGB")
+        logging.info("Successfully decoded base64 image.")
+        return image
+    except Exception as e:
+        logging.error(f"Error processing image from base64 string: {e}")
+        raise ValueError(f"Could not load image from base64 string. Error: {e}")
 
 def load_audio_from_base64(base64_str: str, target_sr: int):
     """Decodes base64 audio using PyAV (ffmpeg) and resamples to the target sample rate."""
@@ -133,6 +183,46 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+def build_prompt_with_tools(messages: List[ChatCompletionMessage], tools: List[ToolSpec], tool_choice: Union[str, ToolChoice]):
+    # Simplified prompt construction for tool use
+    system_prompts = []
+    user_prompts = []
+    for msg in messages:
+        if msg.role == 'system':
+            if isinstance(msg.content, str):
+                system_prompts.append(msg.content)
+        elif msg.role == 'user':
+            text_content = []
+            if isinstance(msg.content, str):
+                 text_content.append(msg.content)
+            elif isinstance(msg.content, list):
+                for part in msg.content:
+                    if part.type == 'text':
+                        text_content.append(part.text)
+            user_prompts.append("\n".join(text_content))
+
+    system_prompt = "\n".join(system_prompts)
+    user_prompt = "\n".join(user_prompts)
+
+    tool_definitions = json.dumps([t.function.model_dump() for t in tools], indent=2)
+    
+    # Add tool instructions to system prompt
+    system_prompt += f"""
+You have access to the following tools. To use a tool, you MUST respond with a single, valid JSON object that represents a function call, and nothing else. Do not add any other text, explanation, or markdown formatting.
+
+Available tools:
+{tool_definitions}
+
+Your response MUST be in the format:
+{{"name": "tool_name", "arguments": {{"arg1": "value1", "arg2": "value2"}}}}
+
+If you are calling a tool, your entire response should be only the JSON object for the tool call.
+"""
+    if isinstance(tool_choice, ToolChoice):
+        system_prompt += f"\nYou MUST use the function: {tool_choice.function['name']}"
+
+    return system_prompt, user_prompt
+
 @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
 async def chat_completions(request: ChatCompletionRequest):
     if 'model' not in model_state:
@@ -141,78 +231,125 @@ async def chat_completions(request: ChatCompletionRequest):
     model = model_state['model']
     tokenizer = model_state['tokenizer']
     
-    # --- Process Multimodal Input ---
+    # --- Process Multimodal Input & Prompts ---
     prompt_parts = []
-    text_prompts = []
     
-    user_message = request.messages[-1] # Assume the last message is the user's prompt
-    if not isinstance(user_message.content, list):
-         # Simple text-only case
-        text_prompts.append(user_message.content)
-    else:
-        # Multimodal case
-        for part in user_message.content:
-            if part.type == 'text':
-                text_prompts.append(part.text)
-            elif part.type == 'audio_url':
-                try:
-                    # Extract base64 data from data URI
-                    base64_content = part.audio_url.url.split(',')[1]
-                    sampling_rate = tokenizer.feature_extractor.sampling_rate
-                    audio_array, _ = load_audio_from_base64(base64_content, sampling_rate)
-                    prompt_parts.append({"type": "audio", "audio": audio_array})
-                    logging.info(f"Processed audio part, duration: {len(audio_array)/sampling_rate:.2f}s")
-                except Exception as e:
-                    raise HTTPException(status_code=400, detail=f"Invalid audio data: {e}")
+    if request.tools:
+        # For tool usage, we simplify to text-based prompting.
+        system_prompt, user_prompt_text = build_prompt_with_tools(request.messages, request.tools, request.tool_choice)
 
-    # Combine all text parts into one
-    full_text_prompt = " ".join(text_prompts)
-    if full_text_prompt:
-        prompt_parts.append({"type": "text", "text": full_text_prompt})
-
-    # --- Prepare Prompt for Model ---
-    messages = [{"role": "user", "content": prompt_parts}]
-    
-    try:
+        # The multimodal tokenizer expects the 'content' of a message to be a list of parts.
+        # This must be true for all roles, including 'system', to avoid a TypeError.
+        messages_for_template = [
+             {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
+             {"role": "user", "content": [{"type": "text", "text": user_prompt_text}]}
+        ]
+        
         inputs = tokenizer.apply_chat_template(
-            messages,
+            messages_for_template,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt"
+        ).to(model.device)
+    else:
+        # Original multimodal logic, robustly handling string or list content.
+        messages_for_template = []
+        for msg in request.messages:
+            processed_content = []
+            
+            # Normalize all content to be a list of Pydantic models
+            content_items = []
+            if isinstance(msg.content, str):
+                content_items.append(ChatCompletionMessageTextPart(type="text", text=msg.content))
+            else:
+                content_items = msg.content
+            
+            for part in content_items:
+                if part.type == 'text':
+                    processed_content.append({"type": "text", "text": part.text})
+                elif part.type == 'image_url' and hasattr(part, 'image_url'):
+                    try:
+                        base64_content = part.image_url.url.split(';base64,', 1)[1]
+                        image = load_image_from_base64(base64_content)
+                        processed_content.append({"type": "image", "image": image})
+                        logging.info(f"Processed image part, size: {image.size}")
+                    except Exception as e:
+                        raise HTTPException(status_code=400, detail=f"Invalid image data: {e}")
+                elif part.type == 'audio_url' and hasattr(part, 'audio_url'):
+                    try:
+                        base64_content = part.audio_url.url.split(';base64,', 1)[1]
+                        sampling_rate = tokenizer.feature_extractor.sampling_rate
+                        audio_array, _ = load_audio_from_base64(base64_content, sampling_rate)
+                        processed_content.append({"type": "audio", "audio": audio_array})
+                        logging.info(f"Processed audio part, duration: {len(audio_array)/sampling_rate:.2f}s")
+                    except Exception as e:
+                        raise HTTPException(status_code=400, detail=f"Invalid audio data: {e}")
+            messages_for_template.append({"role": msg.role, "content": processed_content})
+        
+        inputs = tokenizer.apply_chat_template(
+            messages_for_template,
             add_generation_prompt=True,
             tokenize=True,
             return_dict=True,
             return_tensors="pt"
         ).to(model.device)
 
-        input_length = inputs.input_ids.shape[1]
+    input_length = inputs.input_ids.shape[1]
 
-        logging.info("Generating response from model...")
-        with torch.no_grad():
-            generated_ids = model.generate(
-                **inputs, 
-                max_new_tokens=request.max_tokens,
-                temperature=request.temperature if request.temperature > 0 else None,
-                do_sample=request.temperature > 0,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-        
-        # Slice generated_ids to get only the new tokens and decode
-        newly_generated_ids = generated_ids[:, input_length:]
-        response_text = tokenizer.batch_decode(newly_generated_ids, skip_special_tokens=True)[0].strip()
-        
-        logging.info(f"Generated response: {response_text}")
-
-        response = ChatCompletionResponse(
-            model=model_state['model_id'],
-            choices=[
-                ChatCompletionChoice(
-                    message={"role": "assistant", "content": response_text}
-                )
-            ]
+    logging.info("Generating response from model...")
+    with torch.no_grad():
+        generated_ids = model.generate(
+            **inputs, 
+            max_new_tokens=request.max_tokens,
+            temperature=request.temperature if request.temperature > 0 else None,
+            do_sample=request.temperature > 0,
+            pad_token_id=tokenizer.eos_token_id,
         )
-        return response
+    
+    newly_generated_ids = generated_ids[:, input_length:]
+    response_text = tokenizer.batch_decode(newly_generated_ids, skip_special_tokens=True)[0].strip()
+    logging.info(f"Generated response: {response_text}")
 
-    except Exception as e:
-        logging.error(f"Error during model inference: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error during inference: {e}")
+    # --- Check if the response is a tool call ---
+    try:
+        # Clean potential markdown
+        if response_text.startswith("```json"):
+            response_text = response_text[7:-3].strip()
+            
+        # Check if the response is a JSON object representing a tool call
+        parsed_json = json.loads(response_text)
+        if isinstance(parsed_json, dict) and "name" in parsed_json and "arguments" in parsed_json:
+            func_call_data = parsed_json
+            tool_call = ToolCall(
+                id=f"call_{func_call_data['name']}",
+                type="function",
+                function=FunctionCall(
+                    name=func_call_data["name"],
+                    arguments=json.dumps(func_call_data.get("arguments", {}))
+                )
+            )
+            assistant_message = AssistantMessage(role="assistant", tool_calls=[tool_call])
+            finish_reason = "tool_calls"
+        else:
+            # Not a tool call, treat as regular text
+            assistant_message = AssistantMessage(role="assistant", content=response_text)
+            finish_reason = "stop"
+    except (json.JSONDecodeError, TypeError, KeyError):
+        # Not a JSON or doesn't match tool call structure, so it's a regular text response
+        assistant_message = AssistantMessage(role="assistant", content=response_text)
+        finish_reason = "stop"
+
+    response = ChatCompletionResponse(
+        model=model_state['model_id'],
+        choices=[
+            ChatCompletionChoice(
+                message=assistant_message,
+                finish_reason=finish_reason
+            )
+        ]
+    )
+    return response
 
 
 if __name__ == "__main__":

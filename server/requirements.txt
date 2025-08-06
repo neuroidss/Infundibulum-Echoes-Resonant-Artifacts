@@ -7,3 +7,4 @@ unsloth[gemma-torch]
 uvicorn
 timm
 librosa
+Pillow

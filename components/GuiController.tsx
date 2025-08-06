@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import GUI from 'lil-gui';
 import { MenuSettings } from '../types';
