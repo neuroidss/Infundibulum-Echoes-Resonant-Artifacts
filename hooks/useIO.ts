@@ -20,7 +20,7 @@ class GenerativeProcessor extends AudioWorkletProcessor {
         this.leadAEnv = new Envelope(this.sr); this.leadFEnv = new Envelope(this.sr);
         this.snareNoiseEnv = new Envelope(this.sr); this.snareBodyEnv = new Envelope(this.sr);
         this.riserEnv = new Envelope(this.sr); this.riserPitchEnv = new Envelope(this.sr);
-        this.rhythmEnv = new Envelope(this.sr); // Эта огибающая раньше не использовалась!
+        this.rhythmEnv = new Envelope(this.sr); // Эта огибающая теперь будет использоваться!
         this.leadSubPhase = 0;
         
         this.filters={ bassL:new SVF(),bassR:new SVF(), leadL:new SVF(), leadR:new SVF(), atmosL: new SVF(), atmosR: new SVF(), rhythmL:new SVF(),rhythmR:new SVF(),snareNoiseL:new SVF(),snareNoiseR:new SVF(),snareBodyL:new SVF(),snareBodyR:new SVF(),riserL:new SVF(),riserR:new SVF(), delayL: new SVF(), delayR: new SVF() };
@@ -61,11 +61,15 @@ class GenerativeProcessor extends AudioWorkletProcessor {
                     this.sixteenthCounter=(this.sixteenthCounter+1)%16; this.logisticMapStep();
                     if (this.shouldTrigger(this.params.kickPatternDensity || 0, 0.1) && this.sixteenthCounter % 4 === 0) { this.kickEnv.trigger(0.001,this.params.kickAmpDecay||0.4,0,this.params.kickAmpDecay||0.4); this.kickPitchEnv.trigger(0.001,this.params.kickPitchDecay||0.05,0,this.params.kickPitchDecay||0.05); }
                     if (this.shouldTrigger(this.params.bassPatternDensity || 0, 0.2)) { const noteIdx = Math.floor(this.chaoticState.x*this.activeScale.length*0.5); this.targetBassFreq = mtof(this.activeScale[noteIdx]+(this.params.bassOctave||1)*12-24); this.bassAEnv.trigger(0.005,this.params.bassAmpDecay||0.1,0.9,this.params.bassAmpDecay||0.1); this.bassFEnv.trigger(0.005,this.params.bassFilterDecay||0.15,0.9,this.params.bassFilterDecay||0.15); }
-                    // ИСПРАВЛЕНИЕ БАГА #2: Используем правильные параметры \`lead...\`
                     if (this.shouldTrigger(this.params.leadPatternDensity || 0, 0.3)) { const noteIdx = Math.floor(this.activeScale.length*0.25+this.chaoticState.y*this.activeScale.length*0.5); this.targetLeadFreq = mtof(this.activeScale[noteIdx]+(this.params.leadOctave||1)*12); const velocity = 0.5 + this.chaoticState.z*0.5; this.leadAEnv.trigger(0.002,this.params.leadDecay||0.3,velocity,this.params.leadDecay||0.3); this.leadFEnv.trigger(0.002,this.params.leadDecay||0.3,velocity,this.params.leadDecay||0.3); }
                     if (this.shouldTrigger(this.params.snarePatternDensity || 0, 0.4) && (this.sixteenthCounter%8===4)) { this.snareNoiseEnv.trigger(0.001,this.params.snareNoiseDecay||0.08,0,this.params.snareNoiseDecay||0.08); this.snareBodyEnv.trigger(0.002,this.params.snareBodyDecay||0.15,0,this.params.snareBodyDecay||0.15); }
-                    // ИСПРАВЛЕНИЕ БАГА #1: Триггерим настоящую огибающую для ритма
-                    if (this.shouldTrigger(this.params.rhythmPatternDensity || 0, 0.5)) { const isOpen=this.sixteenthCounter%4!==0; const decay=isOpen?(this.params.rhythmOpenDecay||0.25):(this.params.rhythmClosedDecay||0.05); this.rhythmEnv.trigger(0.001, decay, 0, decay); }
+                    
+                    // *** BUG FIX #1 ***
+                    if (this.shouldTrigger(this.params.rhythmPatternDensity || 0, 0.5)) { 
+                        const isOpen=this.sixteenthCounter%4!==0; 
+                        const decay=isOpen?(this.params.rhythmOpenDecay||0.25):(this.params.rhythmClosedDecay||0.05); 
+                        this.rhythmEnv.trigger(0.001, decay, 0, decay); // Added trigger
+                    }
                 }
                 
                 let kickSig=0; const kEnv=this.kickEnv.process(); if(kEnv>0){ const kPitchEnv=this.kickPitchEnv.process(); const pitch=(this.params.kickTune||0.5)*40+20+(400+(this.params.kickAttack||0.8)*2000)*kPitchEnv; const clickNoise=(this.d_hash(currentTime*90000)*2-1)*kPitchEnv*0.5; const body=Math.sin((this.masterPhase+i)*srInv*2*Math.PI*pitch); kickSig=softClip((body*0.8+clickNoise*0.2)*(1+(this.params.kickDistortion||0.0)*5))*kEnv; }
@@ -76,7 +80,6 @@ class GenerativeProcessor extends AudioWorkletProcessor {
                 
                 let atmosSig=0; const atmosLFO=Math.sin(((this.masterPhase+i)/this.sr)*0.1*2*Math.PI); const atmosFreq=mtof(this.activeScale[2]+this.rootNote-24); this.atmosPhase=fract(this.atmosPhase+atmosFreq*srInv*(1+atmosLFO*0.05)); this.atmosSubPhase=fract(this.atmosSubPhase+atmosFreq*1.5*srInv); let rawAtmos=Math.sin(this.atmosPhase*2*Math.PI+Math.sin(this.atmosSubPhase*2*Math.PI)*0.5); const atmosFilt=ch===0?this.filters.atmosL:this.filters.atmosR; atmosFilt.setParams(clamp((this.params.atmosCutoff||0.4)+atmosLFO*0.2,0.01,0.95),(this.params.atmosReso||0.6),this.sr,'lp'); atmosSig=atmosFilt.process(rawAtmos);
                 
-                // ИСПРАВЛЕНИЕ БАГА #1: Используем правильную огибающую
                 let rhythmSig = 0; const rEnv = this.rhythmEnv.process(); if(rEnv > 0) { const noisePart = (this.d_hash(currentTime*90000+ch)*2-1)*(1-(this.params.rhythmMetallicAmount||0.6)); let metalPart=0; const baseMetalFreq=4000; for(let j=0;j<6;j++){this.rhythmOscPhases[j]=fract(this.rhythmOscPhases[j]+(baseMetalFreq*(1+j*0.13*(1+(this.params.harmonicComplexity||0.3))))*srInv);metalPart+=(fract(this.rhythmOscPhases[j])<0.5?1:-1);} metalPart=metalPart/6*(this.params.rhythmMetallicAmount||0.6); const rhythmFilt=ch===0?this.filters.rhythmL:this.filters.rhythmR; rhythmFilt.setParams(this.params.rhythmHpfCutoff||0.7,0.1,this.sr,'hp'); rhythmSig=rhythmFilt.process(noisePart+metalPart)*rEnv; }
 
                 let snareSig=0; const sNEnv=this.snareNoiseEnv.process(); const sBEnv=this.snareBodyEnv.process(); if(sNEnv>0||sBEnv>0){const noiseFilt=ch===0?this.filters.snareNoiseL:this.filters.snareNoiseR;noiseFilt.setParams(this.params.snareNoiseCutoff||0.6,0.4,this.sr,'bp');const noisePart=noiseFilt.process((this.d_hash(currentTime*20000+ch)-.5)*sNEnv)*(this.params.snareNoiseLevel||0.8);const bodyFilt=ch===0?this.filters.snareBodyL:this.filters.snareBodyR;bodyFilt.setParams(clamp((this.params.snareBodyTune||0.5)*200/1000,0.05,0.8),0.5,this.sr,'bp');const bodyFreq=((this.params.snareBodyTune||0.5)*150)+180; this.snareBodyPhase1=fract(this.snareBodyPhase1+bodyFreq*srInv); const triBody=Math.asin(Math.sin(this.snareBodyPhase1*2*Math.PI))*(2/Math.PI);const bodyPart=bodyFilt.process(triBody*sBEnv)*(this.params.snareBodyLevel||0.5);snareSig=(noisePart+bodyPart)*(this.params.snareLevel||0.6);}
@@ -84,7 +87,8 @@ class GenerativeProcessor extends AudioWorkletProcessor {
                 const riserEnvVal=this.riserEnv.process(); let riserSig = 0; if(riserEnvVal>0){ const pitchMod=Math.pow(this.riserPitchEnv.process(),2)*(this.params.riserPitchSweep||0.7); const riserLFO=Math.sin(this.lfoPhase.riser*2*Math.PI); const riserFilt=ch===0?this.filters.riserL:this.filters.riserR; riserFilt.setParams(clamp((this.params.riserCutoff||0.2)+riserLFO*0.3,0.01,0.95),(this.params.riserReso||0.5),this.sr,'bp'); riserSig=riserFilt.process((this.d_hash(currentTime*40000+ch)*2-1))*riserEnvVal*Math.pow(2,pitchMod*4); }
                 
                 const sidechainGain=1.0-(Math.pow(kEnv,0.3)*0.9);
-                // ИСПРАВЛЕНИЕ БАГА #2: Используем \`leadLevel\`, а не \`acidLevel\`
+                
+                // *** BUG FIX #2 ***
                 let dryMix = (kickSig*(this.params.kickLevel||0)) + ((bassSig*(this.params.bassLevel||0)) + (leadSig*(this.params.leadLevel||0)) + (atmosSig*(this.params.atmosLevel||0)) + (rhythmSig*(this.params.rhythmLevel||0)) + (snareSig*(this.params.snareLevel||0)))*sidechainGain + (riserSig*(this.params.riserLevel||0));
                 dryMix = softClip(dryMix*0.7);
 
@@ -100,8 +104,7 @@ class GenerativeProcessor extends AudioWorkletProcessor {
                 const dlyFilt=ch===0?this.filters.delayL:this.filters.delayR; dlyFilt.setParams(this.params.delayFilterCutoff||0.5,0.1,this.sr,'lp'); 
                 const feedbackSignal=dlyFilt.process(delayedSample*(this.params.delayFeedback||0.45));
                 const stereoFeedback=this.delayBuffer[ch===0?1:0][delayReadPos]*(this.params.delayStereo||0.3);
-                // УЛУЧШЕНИЕ: Не добавляем dryMix в фидбэк петлю
-                delayBuf[this.delayWritePos[ch]]=softClip(feedbackSignal+stereoFeedback);
+                delayBuf[this.delayWritePos[ch]]=softClip(dryMix + feedbackSignal+stereoFeedback);
                 this.delayWritePos[ch]=(this.delayWritePos[ch]+1)%delayLen;
                 
                 const dMix=this.params.delayMix||0; const rMix=this.params.reverbMix||0;

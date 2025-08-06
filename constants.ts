@@ -1,6 +1,4 @@
 
-
-
 import { MenuSettings, HnmLevelConfig, AIModel, ModelProvider, InstrumentScripts } from './types';
 
 export const VERSION = "1.0.0-PsyTek";
@@ -70,13 +68,34 @@ export const TUNING_SCRIPTS: InstrumentScripts = {
             description: "Тест сбалансированного Full-On грува. Показывает синергию Kick-Bass-Lead.",
             steps: [{ duration: 30000, params: {
                 masterBPM: 145,
-                kickPatternDensity: 1.0, kickLevel: 1.0, kickAmpDecay: 0.09, kickDistortion: 0.2,
-                bassPatternDensity: 1.0, bassLevel: 0.85, bassAmpDecay: 0.07, bassCutoff: 0.25,
-                rhythmPatternDensity: 1.0, rhythmLevel: 0.35, rhythmHpfCutoff: 0.8,
-                snarePatternDensity: 0.5, snareLevel: 0.4,
-                leadWaveformMix: 1.0, leadPatternDensity: 0.7, leadLevel: 0.7, leadDecay: 0.2, leadCutoff: 0.4,
-                atmosLevel: 0.0, riserLevel: 0.0,
-                delayMix: 0.3, reverbMix: 0.15,
+                kickPatternDensity: 1,
+                kickLevel: 1,
+                kickAmpDecay: 0.09,
+                kickPitchDecay: 0.015,
+                kickDistortion: 0.2,
+                bassPatternDensity: 1,
+                bassLevel: 0.85,
+                bassAmpDecay: 0.07,
+                bassFilterDecay: 0.1,
+                bassCutoff: 0.25,
+                bassReso: 0.6,
+                bassEnvAmt: 0.8,
+                rhythmPatternDensity: 1,
+                rhythmLevel: 0.4,
+                rhythmHpfCutoff: 0.8,
+                rhythmClosedDecay: 0.04,
+                rhythmOpenDecay: 0.18,
+                snarePatternDensity: 0.5,
+                snareLevel: 0.5,
+                leadWaveformMix: 1,
+                leadPatternDensity: 0.7,
+                leadLevel: 0.7,
+                leadDecay: 0.2,
+                leadCutoff: 0.4,
+                atmosLevel: 0,
+                riserLevel: 0,
+                delayMix: 0.3,
+                reverbMix: 0.15
             }, description: "Full-On Groove" }]
         },
         {
@@ -84,13 +103,29 @@ export const TUNING_SCRIPTS: InstrumentScripts = {
             description: "Тест глубокой атмосферы Psy-Chill. Фокус на пэдах, эффектах и 'пузырях'.",
             steps: [{ duration: 30000, params: {
                 masterBPM: 100,
-                kickPatternDensity: 0.6, kickLevel: 0.8, kickAmpDecay: 0.5,
-                bassPatternDensity: 0.4, bassLevel: 0.9, bassAmpDecay: 0.7, bassCutoff: 0.15,
-                rhythmPatternDensity: 0.2, rhythmLevel: 0.2,
-                snarePatternDensity: 0.1, snareLevel: 0.3,
-                leadWaveformMix: 0.0, leadFmAmount: 0.3, leadPatternDensity: 0.5, leadLevel: 0.6, leadDecay: 0.8,
-                atmosLevel: 0.6, atmosCutoff: 0.3,
-                delayMix: 0.5, delayFeedback: 0.8, reverbMix: 0.6, reverbSize: 0.95,
+                kickPatternDensity: 0.6,
+                kickLevel: 0.8,
+                kickAmpDecay: 0.5,
+                bassPatternDensity: 0.4,
+                bassLevel: 0.9,
+                bassAmpDecay: 0.7,
+                bassCutoff: 0.15,
+                rhythmPatternDensity: 0.3,
+                rhythmLevel: 0.3,
+                rhythmHpfCutoff: 0.6,
+                snarePatternDensity: 0.1,
+                snareLevel: 0.3,
+                leadWaveformMix: 0,
+                leadFmAmount: 0.3,
+                leadPatternDensity: 0.5,
+                leadLevel: 0.6,
+                leadDecay: 0.8,
+                atmosLevel: 0.6,
+                atmosCutoff: 0.3,
+                delayMix: 0.5,
+                delayFeedback: 0.8,
+                reverbMix: 0.6,
+                reverbSize: 0.95
             }, description: "Psy-Chill Ambience" }]
         },
         {
